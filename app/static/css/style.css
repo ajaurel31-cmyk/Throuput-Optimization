@@ -790,6 +790,338 @@ body {
 .risk-low { background: var(--info); color: white; }
 .risk-minimal { background: var(--success); color: white; }
 
+/* ============================================
+   Diagnostics Tab
+   ============================================ */
+
+/* Form layout */
+.diag-form-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+    .diag-form-row {
+        flex-direction: column;
+    }
+}
+
+/* Test selector chips */
+.diag-test-selector {
+    margin-bottom: 1rem;
+}
+
+.diag-test-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.375rem;
+}
+
+.diag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.diag-chip:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+
+.diag-chip input[type="checkbox"] {
+    accent-color: var(--accent);
+}
+
+.diag-chip:has(input:checked) {
+    border-color: var(--accent);
+    background: var(--info-bg);
+    color: var(--text-primary);
+}
+
+/* Actions */
+.diag-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* Health badge */
+.health-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+}
+
+.health-healthy { background: var(--success); color: white; }
+.health-degraded { background: var(--warning); color: #000; }
+.health-impaired { background: #e97316; color: white; }
+.health-critical { background: var(--critical); color: white; }
+.health-unknown { background: var(--text-muted); color: white; }
+
+.diag-health-bar-container {
+    margin-bottom: 1rem;
+}
+
+.diag-health-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.375rem;
+}
+
+/* Result cards */
+.diag-result-card {
+    border-left: 4px solid var(--border);
+    transition: border-color 0.2s;
+}
+
+.diag-result-card.diag-status-pass { border-left-color: var(--success); }
+.diag-result-card.diag-status-warning { border-left-color: var(--warning); }
+.diag-result-card.diag-status-fail { border-left-color: var(--critical); }
+.diag-result-card.diag-status-error { border-left-color: var(--text-muted); }
+
+.diag-result-card .card-header {
+    cursor: pointer;
+    user-select: none;
+}
+
+.diag-result-card .card-header:hover {
+    background: var(--bg-card-hover);
+    border-radius: 6px;
+    margin: -0.5rem;
+    padding: 0.5rem;
+}
+
+.diag-status-icon {
+    font-size: 1.25rem;
+}
+
+.diag-duration {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+}
+
+.diag-expand-icon {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+}
+
+/* Detail section */
+.diag-detail {
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    margin-top: 1rem;
+}
+
+.diag-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.diag-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-primary);
+    border-radius: 6px;
+}
+
+.diag-detail-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.diag-detail-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+}
+
+/* Traceroute table */
+.diag-traceroute-table {
+    overflow-x: auto;
+    margin-bottom: 1rem;
+}
+
+.diag-traceroute-table table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.diag-traceroute-table th {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.diag-traceroute-table td {
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+    color: var(--text-secondary);
+}
+
+.diag-traceroute-table td.mono {
+    font-family: var(--font-mono);
+}
+
+.rtt-bar-container {
+    width: 100%;
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.rtt-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+.rtt-bar.rtt-low { background: var(--success); }
+.rtt-bar.rtt-medium { background: var(--warning); }
+.rtt-bar.rtt-high { background: var(--critical); }
+
+/* Port scan */
+.diag-ports-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.diag-port-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    text-align: center;
+}
+
+.diag-port-item.port-open {
+    border-color: var(--success);
+    background: var(--success-bg);
+}
+
+.diag-port-item.port-closed {
+    border-color: var(--critical);
+    background: var(--critical-bg);
+}
+
+.diag-port-item.port-filtered {
+    border-color: var(--warning);
+    background: var(--warning-bg);
+}
+
+.diag-port-num {
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+.diag-port-service {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+}
+
+.diag-port-state {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+    margin-top: 0.25rem;
+}
+
+/* MTU probes */
+.diag-mtu-probes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.diag-mtu-probe {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+}
+
+.diag-mtu-probe.probe-pass {
+    background: var(--success-bg);
+    color: var(--success);
+}
+
+.diag-mtu-probe.probe-fail {
+    background: var(--critical-bg);
+    color: var(--critical);
+}
+
+/* Recommendations */
+.diag-recommendations {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin-top: 0.75rem;
+}
+
+.diag-rec-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+}
+
+.diag-rec-item {
+    font-size: 0.8rem;
+    color: var(--success);
+    padding: 0.375rem 0;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    border-bottom: 1px solid rgba(51, 65, 85, 0.2);
+}
+
+.diag-rec-item:last-child {
+    border-bottom: none;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .main-container {

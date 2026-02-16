@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 from app.parsers import GenericConfigParser
 from app.analyzers.bottleneck_engine import BottleneckAnalyzer
 from app.analyzers.claude_analyzer import ClaudeAnalyzer
+from app.diagnostics import NetworkDiagnostics
 
 main_bp = Blueprint("main", __name__)
 
@@ -249,6 +250,140 @@ def analyze_with_claude():
             "claude_analysis": claude_result,
         }
     )
+
+
+@main_bp.route("/api/diagnostics/run", methods=["POST"])
+def run_diagnostics():
+    """Run network diagnostics against a target host."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    target = data.get("target", "").strip()
+    if not target:
+        return jsonify({"error": "No target host specified"}), 400
+
+    # Basic input validation — prevent command injection
+    if not _is_valid_host(target):
+        return jsonify({"error": "Invalid target. Use a hostname or IP address."}), 400
+
+    link_speed = data.get("link_speed_gbps", 10)
+    tests = data.get("tests", [])  # empty = run all
+
+    diag = NetworkDiagnostics(target, link_speed_gbps=link_speed)
+
+    if tests:
+        # Run specific tests
+        report = _run_selected_tests(diag, tests)
+    else:
+        report = diag.run_all()
+
+    return jsonify({"status": "ok", "report": report.to_dict()})
+
+
+@main_bp.route("/api/diagnostics/ping", methods=["POST"])
+def run_ping():
+    """Run a quick ping test."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    target = data.get("target", "").strip()
+    if not target or not _is_valid_host(target):
+        return jsonify({"error": "Invalid target"}), 400
+
+    count = min(int(data.get("count", 5)), 20)
+    diag = NetworkDiagnostics(target)
+    result = diag.test_ping(count=count)
+    return jsonify({"status": "ok", "result": result.to_dict()})
+
+
+@main_bp.route("/api/diagnostics/traceroute", methods=["POST"])
+def run_traceroute():
+    """Run traceroute to a target."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    target = data.get("target", "").strip()
+    if not target or not _is_valid_host(target):
+        return jsonify({"error": "Invalid target"}), 400
+
+    max_hops = min(int(data.get("max_hops", 20)), 30)
+    diag = NetworkDiagnostics(target)
+    result = diag.test_traceroute(max_hops=max_hops)
+    return jsonify({"status": "ok", "result": result.to_dict()})
+
+
+@main_bp.route("/api/diagnostics/ports", methods=["POST"])
+def run_port_scan():
+    """Run TCP port connectivity test."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    target = data.get("target", "").strip()
+    if not target or not _is_valid_host(target):
+        return jsonify({"error": "Invalid target"}), 400
+
+    ports = data.get("ports", [22, 80, 443, 179, 161, 8080, 8443])
+    # Validate port numbers
+    ports = [int(p) for p in ports if 1 <= int(p) <= 65535][:20]
+
+    diag = NetworkDiagnostics(target)
+    result = diag.test_tcp_ports(ports=ports)
+    return jsonify({"status": "ok", "result": result.to_dict()})
+
+
+def _is_valid_host(host):
+    """Validate that the host is a safe hostname or IP address."""
+    import re
+    # Allow IPs (v4)
+    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", host):
+        return True
+    # Allow hostnames (alphanumeric, dots, hyphens)
+    if re.match(r"^[a-zA-Z0-9][a-zA-Z0-9.\-]{0,253}[a-zA-Z0-9]$", host):
+        return True
+    # Allow single-label hostnames
+    if re.match(r"^[a-zA-Z0-9]{1,63}$", host):
+        return True
+    return False
+
+
+def _run_selected_tests(diag, test_names):
+    """Run only the selected diagnostic tests."""
+    from app.diagnostics.network_diagnostics import DiagnosticReport
+    import time
+
+    report = DiagnosticReport(
+        target=diag.target,
+        timestamp=time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+    )
+
+    test_map = {
+        "dns": diag.test_dns,
+        "ping": diag.test_ping,
+        "traceroute": diag.test_traceroute,
+        "mtu": diag.test_mtu_path,
+        "ports": diag.test_tcp_ports,
+        "bdp": diag.test_bdp,
+    }
+
+    for name in test_names:
+        fn = test_map.get(name)
+        if fn:
+            try:
+                report.results.append(fn())
+            except Exception as e:
+                from app.diagnostics.network_diagnostics import DiagnosticResult
+                report.results.append(DiagnosticResult(
+                    test_name=name,
+                    status="error",
+                    summary=str(e),
+                ))
+
+    diag._calculate_health(report)
+    return report
 
 
 @main_bp.route("/api/status", methods=["GET"])

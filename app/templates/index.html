@@ -61,6 +61,7 @@
         <div class="tabs">
             <button class="tab active" data-tab="upload">Upload Configs</button>
             <button class="tab" data-tab="results">Analysis Results</button>
+            <button class="tab" data-tab="diagnostics">Diagnostics</button>
             <button class="tab" data-tab="settings">Settings</button>
         </div>
 
@@ -157,6 +158,67 @@ Examples:
         <!-- Tab: Results -->
         <div id="tab-results" class="tab-content">
             <div id="results-container"></div>
+        </div>
+
+        <!-- Tab: Diagnostics -->
+        <div id="tab-diagnostics" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Network Diagnostics</div>
+                        <div class="card-subtitle">Run live network tests to complement config-based analysis</div>
+                    </div>
+                </div>
+                <div class="diag-form">
+                    <div class="diag-form-row">
+                        <div class="form-group" style="flex: 2;">
+                            <label class="form-label">Target Host (IP or hostname)</label>
+                            <input type="text" class="form-input" id="diag-target" placeholder="e.g., 10.1.1.1 or phx-core-sw01.example.com">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">Link Speed</label>
+                            <select class="form-select" id="diag-link-speed">
+                                <option value="1">1 Gbps</option>
+                                <option value="10" selected>10 Gbps</option>
+                                <option value="25">25 Gbps</option>
+                                <option value="40">40 Gbps</option>
+                                <option value="100">100 Gbps</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="diag-test-selector">
+                        <label class="form-label">Tests to Run</label>
+                        <div class="diag-test-chips">
+                            <label class="diag-chip">
+                                <input type="checkbox" value="dns" checked> DNS Resolution
+                            </label>
+                            <label class="diag-chip">
+                                <input type="checkbox" value="ping" checked> ICMP Ping
+                            </label>
+                            <label class="diag-chip">
+                                <input type="checkbox" value="traceroute" checked> Traceroute
+                            </label>
+                            <label class="diag-chip">
+                                <input type="checkbox" value="mtu" checked> MTU Discovery
+                            </label>
+                            <label class="diag-chip">
+                                <input type="checkbox" value="ports" checked> Port Scan
+                            </label>
+                            <label class="diag-chip">
+                                <input type="checkbox" value="bdp" checked> BDP Calculator
+                            </label>
+                        </div>
+                    </div>
+                    <div class="diag-actions">
+                        <button class="btn btn-primary" onclick="runDiagnostics()">&#x1F3AF; Run Diagnostics</button>
+                        <button class="btn btn-secondary" onclick="runQuickPing()">&#x1F4E1; Quick Ping</button>
+                        <button class="btn btn-secondary" onclick="runQuickTrace()">&#x1F5FA; Quick Traceroute</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Diagnostics Results -->
+            <div id="diag-results"></div>
         </div>
 
         <!-- Tab: Settings -->

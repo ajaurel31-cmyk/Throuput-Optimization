@@ -510,6 +510,333 @@ function formatClaudeResponse(text) {
 }
 
 // ========================================
+// Diagnostics
+// ========================================
+function getDiagTarget() {
+    return document.getElementById('diag-target').value.trim();
+}
+
+function getDiagLinkSpeed() {
+    return parseFloat(document.getElementById('diag-link-speed').value) || 10;
+}
+
+function getSelectedTests() {
+    const checkboxes = document.querySelectorAll('.diag-test-chips input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+async function runDiagnostics() {
+    const target = getDiagTarget();
+    if (!target) {
+        alert('Enter a target host (IP address or hostname)');
+        return;
+    }
+
+    const tests = getSelectedTests();
+    if (tests.length === 0) {
+        alert('Select at least one diagnostic test');
+        return;
+    }
+
+    showLoading('Running network diagnostics... This may take up to 2 minutes.');
+
+    try {
+        const resp = await fetch('/api/diagnostics/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target: target,
+                link_speed_gbps: getDiagLinkSpeed(),
+                tests: tests,
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            alert(`Diagnostic error: ${data.error}`);
+            return;
+        }
+
+        renderDiagResults(data.report);
+    } catch (e) {
+        alert(`Diagnostics failed: ${e.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function runQuickPing() {
+    const target = getDiagTarget();
+    if (!target) {
+        alert('Enter a target host');
+        return;
+    }
+
+    showLoading('Pinging ' + target + '...');
+
+    try {
+        const resp = await fetch('/api/diagnostics/ping', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target: target, count: 5 }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            alert(`Ping error: ${data.error}`);
+            return;
+        }
+
+        renderDiagResults({
+            target: target,
+            results: [data.result],
+            overall_health: data.result.status === 'pass' ? 'healthy' : data.result.status === 'warning' ? 'degraded' : 'critical',
+            health_score: data.result.status === 'pass' ? 100 : data.result.status === 'warning' ? 60 : 0,
+            summary: data.result.summary,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (e) {
+        alert(`Ping failed: ${e.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+async function runQuickTrace() {
+    const target = getDiagTarget();
+    if (!target) {
+        alert('Enter a target host');
+        return;
+    }
+
+    showLoading('Running traceroute to ' + target + '... This may take up to a minute.');
+
+    try {
+        const resp = await fetch('/api/diagnostics/traceroute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target: target, max_hops: 20 }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            alert(`Traceroute error: ${data.error}`);
+            return;
+        }
+
+        renderDiagResults({
+            target: target,
+            results: [data.result],
+            overall_health: data.result.status === 'pass' ? 'healthy' : 'degraded',
+            health_score: data.result.status === 'pass' ? 100 : 50,
+            summary: data.result.summary,
+            timestamp: new Date().toISOString(),
+        });
+    } catch (e) {
+        alert(`Traceroute failed: ${e.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+function renderDiagResults(report) {
+    const container = document.getElementById('diag-results');
+    if (!report || !report.results || report.results.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">&#x1F50C;</div>
+                <div class="empty-state-text">No diagnostic results yet.</div>
+            </div>`;
+        return;
+    }
+
+    const healthClass = {
+        healthy: 'health-healthy',
+        degraded: 'health-degraded',
+        impaired: 'health-impaired',
+        critical: 'health-critical',
+    }[report.overall_health] || 'health-unknown';
+
+    const scoreBarClass = report.health_score >= 80 ? 'high' : report.health_score >= 50 ? 'medium' : 'low';
+
+    let html = `
+        <!-- Health Overview -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Diagnostic Report: ${escapeHtml(report.target)}</div>
+                    <div class="card-subtitle">${report.timestamp || ''}</div>
+                </div>
+                <span class="health-badge ${healthClass}">${report.overall_health}</span>
+            </div>
+            <div class="diag-health-bar-container">
+                <div class="diag-health-label">Health Score</div>
+                <div class="throughput-gauge">
+                    <div class="throughput-bar ${scoreBarClass}" style="width: ${Math.max(report.health_score, 5)}%">
+                        ${report.health_score}/100
+                    </div>
+                </div>
+            </div>
+            <div class="summary-box">${escapeHtml(report.summary)}</div>
+        </div>
+
+        <!-- Individual Test Results -->
+    `;
+
+    for (const result of report.results) {
+        const statusIcon = {
+            pass: '&#x2705;',
+            warning: '&#x26A0;',
+            fail: '&#x274C;',
+            error: '&#x26D4;',
+        }[result.status] || '&#x2753;';
+
+        html += `
+        <div class="card diag-result-card diag-status-${result.status}">
+            <div class="card-header" onclick="toggleDiagDetail(this)">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span class="diag-status-icon">${statusIcon}</span>
+                    <div>
+                        <div class="card-title">${escapeHtml(result.test_name)}</div>
+                        <div class="card-subtitle">${escapeHtml(result.summary)}</div>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span class="diag-duration">${result.duration_ms > 0 ? result.duration_ms.toFixed(0) + 'ms' : ''}</span>
+                    <span class="diag-expand-icon">&#x25BC;</span>
+                </div>
+            </div>
+            <div class="diag-detail" style="display: none;">
+        `;
+
+        // Render test-specific details
+        html += renderTestDetails(result);
+
+        // Recommendations
+        if (result.recommendations && result.recommendations.length > 0) {
+            html += `<div class="diag-recommendations">
+                <div class="diag-rec-title">Recommendations</div>`;
+            for (const rec of result.recommendations) {
+                html += `<div class="diag-rec-item">${escapeHtml(rec)}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        html += `</div></div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function renderTestDetails(result) {
+    const d = result.details || {};
+    let html = '';
+
+    switch (result.test_name) {
+        case 'DNS Resolution':
+            if (d.ipv4_addresses) {
+                html += `<div class="diag-detail-grid">
+                    <div class="diag-detail-item"><span class="diag-detail-label">IPv4</span><span class="diag-detail-value">${d.ipv4_addresses.join(', ') || 'None'}</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">IPv6</span><span class="diag-detail-value">${(d.ipv6_addresses || []).join(', ') || 'None'}</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Resolution Time</span><span class="diag-detail-value">${d.resolution_time_ms}ms</span></div>
+                </div>`;
+            }
+            break;
+
+        case 'ICMP Ping':
+            if (d.avg_rtt !== undefined) {
+                html += `<div class="diag-detail-grid">
+                    <div class="diag-detail-item"><span class="diag-detail-label">Min RTT</span><span class="diag-detail-value">${d.min_rtt}ms</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Avg RTT</span><span class="diag-detail-value">${d.avg_rtt}ms</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Max RTT</span><span class="diag-detail-value">${d.max_rtt}ms</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Jitter</span><span class="diag-detail-value">${d.jitter}ms</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Packet Loss</span><span class="diag-detail-value">${d.packet_loss}%</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Transmitted</span><span class="diag-detail-value">${d.transmitted}</span></div>
+                </div>`;
+            }
+            break;
+
+        case 'Traceroute':
+            if (d.hops && d.hops.length > 0) {
+                html += `<div class="diag-traceroute-table"><table>
+                    <thead><tr><th>Hop</th><th>IP</th><th>RTT (ms)</th><th>Visual</th></tr></thead><tbody>`;
+                let maxRtt = 1;
+                for (const h of d.hops) {
+                    if (h.avg_rtt > maxRtt) maxRtt = h.avg_rtt;
+                }
+                for (const h of d.hops) {
+                    const barWidth = h.avg_rtt > 0 ? Math.max((h.avg_rtt / maxRtt) * 100, 3) : 0;
+                    const barClass = h.avg_rtt > 100 ? 'rtt-high' : h.avg_rtt > 30 ? 'rtt-medium' : 'rtt-low';
+                    html += `<tr>
+                        <td>${h.hop}</td>
+                        <td class="mono">${h.ip}</td>
+                        <td class="mono">${h.avg_rtt > 0 ? h.avg_rtt.toFixed(1) : '*'}</td>
+                        <td><div class="rtt-bar-container"><div class="rtt-bar ${barClass}" style="width:${barWidth}%"></div></div></td>
+                    </tr>`;
+                }
+                html += `</tbody></table></div>`;
+            }
+            break;
+
+        case 'MTU Path Discovery':
+            if (d.probes) {
+                html += `<div class="diag-detail-grid">
+                    <div class="diag-detail-item"><span class="diag-detail-label">Path MTU</span><span class="diag-detail-value">${d.path_mtu} bytes</span></div>
+                </div>`;
+                html += `<div class="diag-mtu-probes"><div class="diag-rec-title">Probes</div>`;
+                for (const p of d.probes) {
+                    const icon = p.success ? '&#x2705;' : '&#x274C;';
+                    html += `<span class="diag-mtu-probe ${p.success ? 'probe-pass' : 'probe-fail'}">${icon} ${p.mtu}</span>`;
+                }
+                html += `</div>`;
+            }
+            break;
+
+        case 'TCP Port Scan':
+            if (d.ports) {
+                html += `<div class="diag-ports-grid">`;
+                for (const p of d.ports) {
+                    const portClass = p.state === 'open' ? 'port-open' : p.state === 'closed' ? 'port-closed' : 'port-filtered';
+                    html += `<div class="diag-port-item ${portClass}">
+                        <div class="diag-port-num">${p.port}</div>
+                        <div class="diag-port-service">${p.service}</div>
+                        <div class="diag-port-state">${p.state}</div>
+                    </div>`;
+                }
+                html += `</div>`;
+            }
+            break;
+
+        case 'Bandwidth-Delay Product':
+            if (d.bdp_mb !== undefined) {
+                html += `<div class="diag-detail-grid">
+                    <div class="diag-detail-item"><span class="diag-detail-label">RTT</span><span class="diag-detail-value">${d.rtt_ms}ms</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Link Speed</span><span class="diag-detail-value">${d.link_speed_gbps} Gbps</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">BDP</span><span class="diag-detail-value">${d.bdp_mb} MB</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">TCP Buffer (recommended)</span><span class="diag-detail-value">${(d.recommended_tcp_buffer / 1048576).toFixed(1)} MB</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Max (default window)</span><span class="diag-detail-value">${d.max_single_stream_default_mbps} Mbps</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Max (tuned window)</span><span class="diag-detail-value">${d.max_single_stream_tuned_mbps} Mbps</span></div>
+                </div>`;
+            }
+            break;
+    }
+
+    return html;
+}
+
+function toggleDiagDetail(header) {
+    const detail = header.nextElementSibling;
+    const icon = header.querySelector('.diag-expand-icon');
+    if (detail.style.display === 'none') {
+        detail.style.display = 'block';
+        icon.innerHTML = '&#x25B2;';
+    } else {
+        detail.style.display = 'none';
+        icon.innerHTML = '&#x25BC;';
+    }
+}
+
+// ========================================
 // Settings
 // ========================================
 function updateSettings() {
