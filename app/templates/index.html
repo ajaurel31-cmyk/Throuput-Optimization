@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Throughput Bottleneck Analyzer</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Header -->
+    <header class="header">
+        <h1>
+            <span class="icon">&#x1F6E0;</span>
+            Network Throughput Bottleneck Analyzer
+        </h1>
+        <div class="header-status">
+            <span>
+                <span id="claude-status-dot" class="status-dot inactive"></span>
+                <span id="claude-status-text">Checking...</span>
+            </span>
+            <span>Devices: <strong id="device-count">0</strong></span>
+        </div>
+    </header>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text" style="color: var(--text-secondary);">Working...</div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Alerts -->
+        <div id="alerts"></div>
+
+        <!-- Network Path Visualization -->
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Network Path: Traffic Flow</div>
+                    <div class="card-subtitle">
+                        Server &rarr; Core Switch &rarr; Firewall &rarr; Edge Switch &rarr; WAN &rarr; Edge Switch &rarr; Firewall &rarr; Core Switch &rarr; Server
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-primary" onclick="runAnalysis()" title="Run rule-based analysis">
+                        &#x1F50D; Run Analysis
+                    </button>
+                    <button class="btn btn-claude" id="btn-claude-analyze" onclick="runClaudeAnalysis()" title="Send to Claude for deep analysis">
+                        &#x2728; Claude Deep Analysis
+                    </button>
+                </div>
+            </div>
+            <div id="network-path" class="network-path"></div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" data-tab="upload">Upload Configs</button>
+            <button class="tab" data-tab="results">Analysis Results</button>
+            <button class="tab" data-tab="settings">Settings</button>
+        </div>
+
+        <!-- Tab: Upload -->
+        <div id="tab-upload" class="tab-content active">
+            <div class="upload-grid">
+                <!-- File Upload -->
+                <div class="card">
+                    <div class="card-title">Upload Config File</div>
+                    <div class="card-subtitle">Supports Cisco IOS/NX-OS, Palo Alto, Juniper JunOS configs</div>
+                    <br>
+                    <div id="drop-zone" class="upload-zone">
+                        <div class="upload-zone-icon">&#x1F4C1;</div>
+                        <div class="upload-zone-text">
+                            Drop config file here or click to browse<br>
+                            <small>.txt, .conf, .cfg, .xml, .set</small>
+                        </div>
+                    </div>
+                    <input type="file" id="file-input" accept=".txt,.conf,.cfg,.log,.xml,.set" style="display:none">
+                    <br>
+                    <div class="form-group">
+                        <label class="form-label">Device Name</label>
+                        <input type="text" class="form-input" id="file-device-name" placeholder="e.g., ATL-CORE-SW01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Device Role in Path</label>
+                        <select class="form-select device-role-select" id="file-device-role"></select>
+                    </div>
+                    <button class="btn btn-primary" onclick="uploadFile()">&#x1F4E4; Upload &amp; Parse</button>
+                </div>
+
+                <!-- Paste Config -->
+                <div class="card">
+                    <div class="card-title">Paste Configuration</div>
+                    <div class="card-subtitle">Paste the output of "show running-config" or equivalent</div>
+                    <br>
+                    <div class="form-group">
+                        <label class="form-label">Device Name</label>
+                        <input type="text" class="form-input" id="paste-device-name" placeholder="e.g., PHX-FW01">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Device Role in Path</label>
+                        <select class="form-select device-role-select" id="paste-device-role"></select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Configuration</label>
+                        <textarea class="form-textarea" id="paste-config" placeholder="Paste device configuration here...
+
+Examples:
+  Cisco: show running-config
+  Palo Alto: set cli config-output-format set; show
+  Juniper: show configuration | display set"></textarea>
+                    </div>
+                    <button class="btn btn-primary" onclick="uploadText()">&#x1F4CB; Parse &amp; Add</button>
+                </div>
+            </div>
+
+            <!-- Uploaded Devices -->
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-header">
+                    <div class="card-title">Uploaded Devices</div>
+                    <button class="btn btn-danger" onclick="clearAllDevices()">Clear All</button>
+                </div>
+                <div id="device-list"></div>
+            </div>
+
+            <!-- Helpful Checklist -->
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-title">What to Upload</div>
+                <div class="card-subtitle">For best analysis, upload configs for every device in the traffic path</div>
+                <br>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 2;">
+                    <strong style="color: var(--text-primary);">ATL Site (Source):</strong><br>
+                    &nbsp;&nbsp;&#x2610; Source Server — NIC config, TCP/IP settings (ifconfig, ethtool, sysctl)<br>
+                    &nbsp;&nbsp;&#x2610; Core Switch — show running-config (interfaces facing server + firewall)<br>
+                    &nbsp;&nbsp;&#x2610; Firewall — full config (security rules, NAT, threat profiles, QoS)<br>
+                    &nbsp;&nbsp;&#x2610; Edge Switch — show running-config (interfaces facing firewall + WAN)<br>
+                    <br>
+                    <strong style="color: var(--text-primary);">PHX Site (Target):</strong><br>
+                    &nbsp;&nbsp;&#x2610; Edge Switch — show running-config<br>
+                    &nbsp;&nbsp;&#x2610; Firewall — full config<br>
+                    &nbsp;&nbsp;&#x2610; Core Switch — show running-config<br>
+                    &nbsp;&nbsp;&#x2610; Target Server — NIC config, TCP/IP settings<br>
+                    <br>
+                    <strong style="color: var(--text-primary);">Also helpful (paste as server config):</strong><br>
+                    &nbsp;&nbsp;&#x2610; <code>show interface</code> output (for error counters: CRC, input errors, output drops)<br>
+                    &nbsp;&nbsp;&#x2610; <code>show policy-map interface</code> output (for QoS drops)<br>
+                    &nbsp;&nbsp;&#x2610; <code>ethtool &lt;iface&gt;</code> and <code>ethtool -S &lt;iface&gt;</code> from servers<br>
+                    &nbsp;&nbsp;&#x2610; <code>sysctl -a | grep -E 'tcp|mem|buf'</code> from servers<br>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab: Results -->
+        <div id="tab-results" class="tab-content">
+            <div id="results-container"></div>
+        </div>
+
+        <!-- Tab: Settings -->
+        <div id="tab-settings" class="tab-content">
+            <div class="card">
+                <div class="card-title">Link &amp; Site Settings</div>
+                <div class="card-subtitle">Configure your WAN link and site details</div>
+                <br>
+                <div class="settings-grid">
+                    <div class="form-group">
+                        <label class="form-label">WAN Link Speed (Gbps)</label>
+                        <select class="form-select" id="link-speed">
+                            <option value="1">1 Gbps</option>
+                            <option value="2.5">2.5 Gbps</option>
+                            <option value="5">5 Gbps</option>
+                            <option value="10" selected>10 Gbps</option>
+                            <option value="25">25 Gbps</option>
+                            <option value="40">40 Gbps</option>
+                            <option value="100">100 Gbps</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Source Site Name</label>
+                        <input type="text" class="form-input" id="site-a" value="ATL" placeholder="ATL">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Target Site Name</label>
+                        <input type="text" class="form-input" id="site-b" value="PHX" placeholder="PHX">
+                    </div>
+                </div>
+                <br>
+                <button class="btn btn-primary" onclick="updateSettings()">Save Settings</button>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-title">Claude API Configuration</div>
+                <div class="card-subtitle">Required for AI-powered deep analysis</div>
+                <br>
+                <div class="alert alert-info">
+                    To enable Claude deep analysis, set the <code>ANTHROPIC_API_KEY</code>
+                    environment variable in your <code>.env</code> file. Copy <code>.env.example</code>
+                    to <code>.env</code> and add your API key.
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;">
+                    <strong>How Claude analysis works:</strong><br>
+                    1. Your device configs are parsed locally first (no data leaves your machine)<br>
+                    2. When you click "Claude Deep Analysis", parsed config data and local findings
+                       are sent to the Anthropic API<br>
+                    3. Claude reviews the configs holistically and provides expert-level recommendations<br>
+                    4. Claude checks for cross-device issues that rule-based analysis might miss
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-title">Common Bottleneck Causes</div>
+                <div class="card-subtitle">Reference: Why you might only get 50 MB/s on a 10G pipe</div>
+                <br>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8;">
+                    <strong style="color: var(--critical);">Layer 1-2 (Physical/Data Link):</strong><br>
+                    &nbsp;&nbsp;&bull; Speed/duplex mismatch (e.g., 1G negotiated on a 10G port)<br>
+                    &nbsp;&nbsp;&bull; Bad SFP/transceiver or cable (CRC errors, input errors)<br>
+                    &nbsp;&nbsp;&bull; Half-duplex anywhere in the path<br>
+                    <br>
+                    <strong style="color: var(--warning);">Layer 3 (Network):</strong><br>
+                    &nbsp;&nbsp;&bull; MTU mismatch causing fragmentation or PMTUD black hole<br>
+                    &nbsp;&nbsp;&bull; Jumbo frames enabled on some devices but not all<br>
+                    &nbsp;&nbsp;&bull; Suboptimal routing (asymmetric path, extra hops)<br>
+                    <br>
+                    <strong style="color: var(--warning);">Layer 4 (Transport):</strong><br>
+                    &nbsp;&nbsp;&bull; TCP window size too small for bandwidth-delay product<br>
+                    &nbsp;&nbsp;&bull; TCP MSS clamping reducing segment size<br>
+                    &nbsp;&nbsp;&bull; Single TCP stream (need parallel streams for high BDP)<br>
+                    &nbsp;&nbsp;&bull; TCP congestion control algorithm not suited for long fat pipes<br>
+                    <br>
+                    <strong style="color: var(--info);">Firewall / Security:</strong><br>
+                    &nbsp;&nbsp;&bull; SSL/TLS decryption (50-80% throughput hit)<br>
+                    &nbsp;&nbsp;&bull; IPS/IDS inspection overhead<br>
+                    &nbsp;&nbsp;&bull; Session table exhaustion<br>
+                    &nbsp;&nbsp;&bull; Firewall CPU saturation<br>
+                    <br>
+                    <strong style="color: var(--info);">QoS / Traffic Management:</strong><br>
+                    &nbsp;&nbsp;&bull; Traffic shaper or policer capping bandwidth<br>
+                    &nbsp;&nbsp;&bull; Wrong QoS queue assignment (best-effort instead of priority)<br>
+                    &nbsp;&nbsp;&bull; Output queue drops on congested interfaces<br>
+                    <br>
+                    <strong style="color: var(--text-primary);">Server / Application:</strong><br>
+                    &nbsp;&nbsp;&bull; Disk I/O bottleneck on source or target server<br>
+                    &nbsp;&nbsp;&bull; NIC offload disabled (TSO, GRO, LRO)<br>
+                    &nbsp;&nbsp;&bull; CPU bottleneck on server (single-threaded transfer)<br>
+                    &nbsp;&nbsp;&bull; Small socket buffer sizes<br>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
