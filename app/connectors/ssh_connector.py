@@ -7,6 +7,7 @@ Supports:
   - Juniper JunOS
 """
 
+import logging
 import time
 import re
 import socket
@@ -15,6 +16,8 @@ try:
     import paramiko
 except ImportError:
     paramiko = None
+
+logger = logging.getLogger(__name__)
 
 
 # Commands to run per device type.  Each entry is a list of (setup, config)
@@ -95,10 +98,10 @@ class SSHConfigFetcher:
                 "hostname": hostname,
             }
 
-        except paramiko.AuthenticationException:
+        except paramiko.AuthenticationException as e:
             return {
                 "status": "error",
-                "message": "Authentication failed. Check username and password.",
+                "message": f"Authentication failed: {str(e)}",
             }
         except paramiko.SSHException as e:
             return {
@@ -141,48 +144,126 @@ class SSHConfigFetcher:
     def _connect(self):
         """Establish SSH connection.
 
-        Tries standard password auth first, then falls back to
-        keyboard-interactive auth (common on Cisco/network switches).
-        Also enables legacy SSH algorithms that older devices may require.
+        Tries multiple authentication strategies to handle the wide variety
+        of SSH implementations found on network devices:
+          1. Standard password auth (with legacy algorithm support)
+          2. Keyboard-interactive auth via Transport (for switches that
+             reject normal password auth, e.g. many Cisco devices)
+          3. Direct password auth via Transport
         """
-        self.client = paramiko.SSHClient()
-        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        # Many older network devices require legacy algorithms that modern
-        # paramiko disables by default.
+        # Disable rsa-sha2 variants that many older switches don't support,
+        # forcing paramiko to fall back to ssh-rsa.
         disabled_algorithms = {
             "pubkeys": ["rsa-sha2-256", "rsa-sha2-512"],
         }
 
+        errors = []
+
+        # --- Strategy 1: Standard SSHClient.connect() ---
         try:
-            # Attempt standard password authentication first
+            logger.info("SSH to %s:%s – trying standard password auth",
+                        self.host, self.port)
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self.client.connect(
                 hostname=self.host,
                 port=self.port,
                 username=self.username,
                 password=self.password,
                 timeout=SSH_CONNECT_TIMEOUT,
+                banner_timeout=SSH_CONNECT_TIMEOUT,
+                auth_timeout=SSH_CONNECT_TIMEOUT,
                 look_for_keys=False,
                 allow_agent=False,
                 disabled_algorithms=disabled_algorithms,
             )
-        except paramiko.AuthenticationException:
-            # Fall back to keyboard-interactive authentication.
-            # Many network switches (Cisco, etc.) use this method and
-            # reject standard password auth.
-            self.client = paramiko.SSHClient()
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            logger.info("SSH to %s – standard password auth succeeded",
+                        self.host)
+            return  # success
+        except paramiko.AuthenticationException as e:
+            errors.append(f"password auth: {e}")
+            logger.info("SSH to %s – standard password auth failed: %s",
+                        self.host, e)
+        except Exception as e:
+            errors.append(f"password auth connect: {e}")
+            logger.info("SSH to %s – standard connect failed: %s",
+                        self.host, e)
 
-            transport = paramiko.Transport((self.host, self.port))
-            transport.connect(username=self.username)
+        # --- Strategy 2: Keyboard-interactive via Transport ---
+        try:
+            logger.info("SSH to %s – trying keyboard-interactive auth",
+                        self.host)
+            sock = socket.create_connection(
+                (self.host, self.port), timeout=SSH_CONNECT_TIMEOUT
+            )
+            transport = paramiko.Transport(sock)
+            transport.set_log_channel(__name__)
+            transport.start_client(timeout=SSH_CONNECT_TIMEOUT)
 
             def _kbd_interactive_handler(title, instructions, prompt_list):
-                """Respond to each keyboard-interactive prompt with the
-                password."""
                 return [self.password for _ in prompt_list]
 
             transport.auth_interactive(self.username, _kbd_interactive_handler)
+
+            if not transport.is_authenticated():
+                transport.close()
+                raise paramiko.AuthenticationException(
+                    "keyboard-interactive auth completed but not authenticated"
+                )
+
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self.client._transport = transport
+            logger.info("SSH to %s – keyboard-interactive auth succeeded",
+                        self.host)
+            return  # success
+        except paramiko.AuthenticationException as e:
+            errors.append(f"keyboard-interactive: {e}")
+            logger.info("SSH to %s – keyboard-interactive failed: %s",
+                        self.host, e)
+        except Exception as e:
+            errors.append(f"keyboard-interactive connect: {e}")
+            logger.info("SSH to %s – keyboard-interactive connect failed: %s",
+                        self.host, e)
+
+        # --- Strategy 3: Password auth via Transport ---
+        try:
+            logger.info("SSH to %s – trying transport password auth",
+                        self.host)
+            sock = socket.create_connection(
+                (self.host, self.port), timeout=SSH_CONNECT_TIMEOUT
+            )
+            transport = paramiko.Transport(sock)
+            transport.set_log_channel(__name__)
+            transport.start_client(timeout=SSH_CONNECT_TIMEOUT)
+            transport.auth_password(self.username, self.password)
+
+            if not transport.is_authenticated():
+                transport.close()
+                raise paramiko.AuthenticationException(
+                    "transport password auth completed but not authenticated"
+                )
+
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.client._transport = transport
+            logger.info("SSH to %s – transport password auth succeeded",
+                        self.host)
+            return  # success
+        except paramiko.AuthenticationException as e:
+            errors.append(f"transport password: {e}")
+            logger.info("SSH to %s – transport password failed: %s",
+                        self.host, e)
+        except Exception as e:
+            errors.append(f"transport password connect: {e}")
+            logger.info("SSH to %s – transport password connect failed: %s",
+                        self.host, e)
+
+        # All strategies failed
+        detail = "; ".join(errors)
+        raise paramiko.AuthenticationException(
+            f"All auth methods failed for {self.host}: {detail}"
+        )
 
     def _disconnect(self):
         """Close SSH connection."""
