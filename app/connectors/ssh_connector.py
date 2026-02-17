@@ -3,6 +3,7 @@ SSH connector for fetching device configurations from network equipment.
 
 Supports:
   - Cisco IOS / IOS-XE / NX-OS
+  - Dell PowerConnect / Dell Networking
   - Palo Alto PAN-OS
   - Juniper JunOS
 """
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 DEVICE_COMMANDS = {
     "cisco": {
         "setup": ["terminal length 0"],
+        "config": ["show running-config"],
+    },
+    "dell": {
+        "setup": ["terminal datadump"],
         "config": ["show running-config"],
     },
     "paloalto": {
@@ -86,7 +91,7 @@ class SSHConfigFetcher:
                     "status": "error",
                     "message": (
                         f"Unsupported device type: {self.device_type}. "
-                        "Supported: cisco, paloalto, juniper"
+                        "Supported: cisco, dell, paloalto, juniper"
                     ),
                 }
 
@@ -375,6 +380,14 @@ class SSHConfigFetcher:
 
         output_lower = output.lower()
 
+        # Dell PowerConnect / Dell Networking – banner or prompt contains
+        # Dell-specific strings like "Dell", "PowerConnect", or the
+        # typical firmware version format "RLSB".
+        if any(kw in output_lower for kw in (
+            "dell", "powerconnect", "rlsb", "terminal datadump",
+        )):
+            return "dell"
+
         # Palo Alto prompts look like: "admin@PA-5260>"
         if "pa-" in output_lower or "panorama" in output_lower:
             return "paloalto"
@@ -420,8 +433,19 @@ class SSHConfigFetcher:
         config_output = self._clean_output(config_output, commands)
         return config_output
 
+    # Regex matching common pager prompts across vendors.
+    _PAGER_RE = re.compile(
+        r"(--\s*more\s*--|more:\s*<space>|^\s*more\s*:\s*$)",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
     def _read_until_prompt(self, shell):
-        """Read shell output until prompt returns or timeout."""
+        """Read shell output until prompt returns or timeout.
+
+        Automatically presses Space when it detects a ``More:`` pager
+        prompt so that the full output is captured even when the device's
+        paging was not successfully disabled.
+        """
         output = ""
         start = time.time()
         idle_count = 0
@@ -431,6 +455,11 @@ class SSHConfigFetcher:
                 chunk = shell.recv(65535).decode("utf-8", errors="replace")
                 output += chunk
                 idle_count = 0
+
+                # If the device is paging, send a space to continue
+                recent = output[-80:] if len(output) > 80 else output
+                if self._PAGER_RE.search(recent):
+                    shell.send(" ")
             else:
                 time.sleep(0.5)
                 idle_count += 1
@@ -463,14 +492,18 @@ class SSHConfigFetcher:
             # Skip prompt-only lines (e.g. "Router#", "admin@PA>")
             if re.match(r"^[\w\-@./:()]+[#>$]\s*$", stripped):
                 continue
+            # Skip pager lines (e.g. "More: <space>, Quit: q ...")
+            if self._PAGER_RE.search(stripped):
+                continue
             cleaned.append(line)
 
         return "\n".join(cleaned).strip()
 
     def _extract_hostname(self, config_text):
         """Try to extract hostname from config text."""
-        # Cisco: "hostname XXXXX"
-        match = re.search(r"^hostname\s+(\S+)", config_text, re.MULTILINE)
+        # Cisco / Dell: "hostname XXXXX" or hostname "XXXXX"
+        match = re.search(r'^hostname\s+"?([^"\s]+)"?', config_text,
+                          re.MULTILINE)
         if match:
             return match.group(1)
 
