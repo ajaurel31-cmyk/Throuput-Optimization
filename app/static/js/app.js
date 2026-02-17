@@ -118,7 +118,7 @@ function toggleConfigView() {
     state._sshConfigExpanded = !state._sshConfigExpanded;
     if (state._sshConfigExpanded) {
         textEl.textContent = state._sshConfigFull;
-        preEl.style.maxHeight = '600px';
+        preEl.style.maxHeight = 'none';
         btn.textContent = 'Collapse';
     } else {
         textEl.textContent = state._sshConfigPreview;
