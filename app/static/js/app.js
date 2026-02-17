@@ -548,6 +548,9 @@ function renderResults() {
     }
 
     container.innerHTML = html;
+
+    // Show the interactive chat section
+    showChatSection();
 }
 
 function renderFindings(findings) {
@@ -602,6 +605,124 @@ function formatClaudeResponse(text) {
     html = html.replace(/^- (.+)$/gm, '&bull; $1');
     return html;
 }
+
+// ========================================
+// Interactive Chat
+// ========================================
+state.chatHistory = [];  // {role, content} pairs for Claude API
+state.chatVisible = false;
+
+function showChatSection() {
+    const section = document.getElementById('chat-section');
+    if (section) {
+        section.style.display = '';
+        state.chatVisible = true;
+    }
+}
+
+function clearChat() {
+    state.chatHistory = [];
+    const container = document.getElementById('chat-messages');
+    if (container) container.innerHTML = '';
+    // Re-show suggestions
+    const suggestions = document.querySelector('.chat-suggestions');
+    if (suggestions) suggestions.style.display = '';
+}
+
+function askSuggestion(btn) {
+    const text = btn.textContent.trim();
+    document.getElementById('chat-input').value = text;
+    sendChatMessage();
+}
+
+async function sendChatMessage() {
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    input.value = '';
+    input.disabled = true;
+    document.getElementById('chat-send-btn').disabled = true;
+
+    // Hide suggestions after first message
+    const suggestions = document.querySelector('.chat-suggestions');
+    if (suggestions) suggestions.style.display = 'none';
+
+    // Add user message to UI
+    appendChatBubble('user', message);
+
+    // Add typing indicator
+    const typingId = appendChatBubble('assistant', '', true);
+
+    try {
+        const resp = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: message,
+                history: state.chatHistory,
+                link_speed_gbps: state.settings.linkSpeedGbps,
+                site_a: state.settings.siteA,
+                site_b: state.settings.siteB,
+            }),
+        });
+        const data = await resp.json();
+
+        // Remove typing indicator
+        removeChatBubble(typingId);
+
+        if (data.status === 'success') {
+            // Update conversation history for context continuity
+            state.chatHistory.push({ role: 'user', content: message });
+            state.chatHistory.push({ role: 'assistant', content: data.reply });
+
+            appendChatBubble('assistant', data.reply);
+        } else {
+            appendChatBubble('assistant',
+                'Error: ' + (data.message || 'Failed to get a response. Check your API key.'));
+        }
+    } catch (e) {
+        removeChatBubble(typingId);
+        appendChatBubble('assistant', 'Connection error: ' + e.message);
+    } finally {
+        input.disabled = false;
+        document.getElementById('chat-send-btn').disabled = false;
+        input.focus();
+    }
+}
+
+function appendChatBubble(role, content, isTyping) {
+    const container = document.getElementById('chat-messages');
+    const bubble = document.createElement('div');
+    const id = 'chat-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+    bubble.id = id;
+    bubble.className = 'chat-bubble chat-' + role;
+
+    if (isTyping) {
+        bubble.innerHTML = '<div class="chat-typing"><span></span><span></span><span></span></div>';
+    } else if (role === 'assistant') {
+        bubble.innerHTML = formatClaudeResponse(content);
+    } else {
+        bubble.textContent = content;
+    }
+
+    container.appendChild(bubble);
+    container.scrollTop = container.scrollHeight;
+    return id;
+}
+
+function removeChatBubble(id) {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+}
+
+// Send on Enter (Shift+Enter for newline)
+document.addEventListener('keydown', function(e) {
+    if (e.target.id === 'chat-input' && e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+    }
+});
 
 // ========================================
 // Diagnostics

@@ -255,6 +255,42 @@ def analyze_with_claude():
     )
 
 
+@main_bp.route("/api/chat", methods=["POST"])
+def chat_with_claude():
+    """Interactive follow-up chat about the analysis."""
+    devices = session.get("devices", [])
+    data = request.get_json() or {}
+
+    user_message = data.get("message", "").strip()
+    if not user_message:
+        return jsonify({"error": "No message provided"}), 400
+
+    conversation_history = data.get("history", [])
+    link_speed = data.get("link_speed_gbps", 10)
+    site_a = data.get("site_a", "ATL")
+    site_b = data.get("site_b", "PHX")
+
+    # Run local analysis for context (if devices are loaded)
+    local_report = {}
+    if devices:
+        analyzer = BottleneckAnalyzer(devices, link_speed_gbps=link_speed)
+        report = analyzer.analyze()
+        local_report = report.to_dict()
+
+    claude = ClaudeAnalyzer()
+    result = claude.chat(
+        user_message=user_message,
+        conversation_history=conversation_history,
+        devices=devices,
+        local_report=local_report,
+        link_speed_gbps=link_speed,
+        site_a=site_a,
+        site_b=site_b,
+    )
+
+    return jsonify(result)
+
+
 @main_bp.route("/api/diagnostics/run", methods=["POST"])
 def run_diagnostics():
     """Run network diagnostics against a target host."""

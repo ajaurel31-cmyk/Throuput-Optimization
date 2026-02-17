@@ -110,6 +110,85 @@ class ClaudeAnalyzer:
                 "message": f"Claude API error: {str(e)}",
             }
 
+    def chat(self, user_message, conversation_history, devices, local_report,
+             link_speed_gbps=10, site_a="ATL", site_b="PHX"):
+        """
+        Send a follow-up chat message with full analysis context.
+
+        Args:
+            user_message: the user's new question
+            conversation_history: list of prior {"role": ..., "content": ...} messages
+            devices: list of parsed device dicts
+            local_report: dict from BottleneckReport.to_dict()
+            link_speed_gbps: WAN link speed
+            site_a / site_b: site names
+
+        Returns:
+            dict with assistant reply or error
+        """
+        if not self.available:
+            return {
+                "status": "unavailable",
+                "message": (
+                    "Claude API is not configured. Set ANTHROPIC_API_KEY in your "
+                    ".env file to enable the interactive chat."
+                ),
+            }
+
+        # Build a system message that includes all the device/analysis context
+        context = self._build_prompt(devices, local_report, link_speed_gbps, site_a, site_b)
+        system = (
+            SYSTEM_PROMPT
+            + "\n\n--- ANALYSIS CONTEXT (device configs & automated findings) ---\n\n"
+            + context
+            + "\n\n--- END OF CONTEXT ---\n\n"
+            "The user is now asking follow-up questions about this analysis. "
+            "Answer concisely and specifically. Reference device names, interface "
+            "names, and exact commands. When the user asks for Windows Server "
+            "commands, provide PowerShell syntax (these are Windows Server 2019 machines)."
+        )
+
+        # Build messages: prior conversation + new user message
+        messages = list(conversation_history) + [
+            {"role": "user", "content": user_message},
+        ]
+
+        try:
+            client = anthropic.Anthropic(api_key=self.api_key)
+            response = client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=4096,
+                system=system,
+                messages=messages,
+            )
+
+            reply = response.content[0].text
+
+            return {
+                "status": "success",
+                "reply": reply,
+                "usage": {
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                },
+            }
+
+        except anthropic.AuthenticationError:
+            return {
+                "status": "error",
+                "message": "Invalid ANTHROPIC_API_KEY. Please check your API key.",
+            }
+        except anthropic.RateLimitError:
+            return {
+                "status": "error",
+                "message": "Claude API rate limit reached. Please try again in a moment.",
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "message": f"Claude API error: {str(e)}",
+            }
+
     def _build_prompt(self, devices, local_report, link_speed_gbps, site_a, site_b):
         """Build a detailed prompt for Claude with all config context."""
         sections = []

@@ -192,7 +192,7 @@ Examples:
                 <br>
                 <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 2;">
                     <strong style="color: var(--text-primary);">ATL Site (Source):</strong><br>
-                    &nbsp;&nbsp;&#x2610; Source Server — NIC config, TCP/IP settings (ifconfig, ethtool, sysctl)<br>
+                    &nbsp;&nbsp;&#x2610; Source Server — NIC config, TCP/IP settings (Get-NetAdapter, Get-NetTCPSetting, netsh interface tcp show global)<br>
                     &nbsp;&nbsp;&#x2610; Core Switch — show running-config (interfaces facing server + firewall)<br>
                     &nbsp;&nbsp;&#x2610; Firewall — full config (security rules, NAT, threat profiles, QoS)<br>
                     &nbsp;&nbsp;&#x2610; Edge Switch — show running-config (interfaces facing firewall + WAN)<br>
@@ -201,13 +201,13 @@ Examples:
                     &nbsp;&nbsp;&#x2610; Edge Switch — show running-config<br>
                     &nbsp;&nbsp;&#x2610; Firewall — full config<br>
                     &nbsp;&nbsp;&#x2610; Core Switch — show running-config<br>
-                    &nbsp;&nbsp;&#x2610; Target Server — NIC config, TCP/IP settings<br>
+                    &nbsp;&nbsp;&#x2610; Target Server — NIC config, TCP/IP settings (same PowerShell commands as source)<br>
                     <br>
                     <strong style="color: var(--text-primary);">Also helpful (paste as server config):</strong><br>
                     &nbsp;&nbsp;&#x2610; <code>show interface</code> output (for error counters: CRC, input errors, output drops)<br>
                     &nbsp;&nbsp;&#x2610; <code>show policy-map interface</code> output (for QoS drops)<br>
-                    &nbsp;&nbsp;&#x2610; <code>ethtool &lt;iface&gt;</code> and <code>ethtool -S &lt;iface&gt;</code> from servers<br>
-                    &nbsp;&nbsp;&#x2610; <code>sysctl -a | grep -E 'tcp|mem|buf'</code> from servers<br>
+                    &nbsp;&nbsp;&#x2610; <code>Get-NetAdapterAdvancedProperty</code> from Windows servers (NIC offloads, RSS, jumbo frames)<br>
+                    &nbsp;&nbsp;&#x2610; <code>netsh interface tcp show global</code> from servers (TCP auto-tuning, scaling heuristics)<br>
                 </div>
             </div>
         </div>
@@ -215,6 +215,28 @@ Examples:
         <!-- Tab: Results -->
         <div id="tab-results" class="tab-content">
             <div id="results-container"></div>
+
+            <!-- Interactive Chat with Claude -->
+            <div id="chat-section" class="card chat-card" style="display: none;">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Ask Claude</div>
+                        <div class="card-subtitle">Ask follow-up questions about the analysis, request specific commands, or drill into findings</div>
+                    </div>
+                    <button class="btn btn-secondary" onclick="clearChat()" title="Clear conversation">Clear Chat</button>
+                </div>
+                <div id="chat-messages" class="chat-messages"></div>
+                <div class="chat-input-row">
+                    <textarea id="chat-input" class="chat-input" placeholder="Ask a question... e.g. &quot;What PowerShell commands fix the TCP auto-tuning?&quot;" rows="2"></textarea>
+                    <button id="chat-send-btn" class="btn btn-claude" onclick="sendChatMessage()">Send</button>
+                </div>
+                <div class="chat-suggestions">
+                    <button class="chat-suggestion" onclick="askSuggestion(this)">What are the exact commands to fix all critical issues?</button>
+                    <button class="chat-suggestion" onclick="askSuggestion(this)">Explain the MTU mismatch and how to fix it on Windows Server 2019</button>
+                    <button class="chat-suggestion" onclick="askSuggestion(this)">What TCP tuning should I apply to both servers?</button>
+                    <button class="chat-suggestion" onclick="askSuggestion(this)">Which issue should I fix first for the biggest throughput gain?</button>
+                </div>
+            </div>
         </div>
 
         <!-- Tab: Diagnostics -->
