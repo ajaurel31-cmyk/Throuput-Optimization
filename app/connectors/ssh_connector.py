@@ -139,18 +139,50 @@ class SSHConfigFetcher:
     # ------------------------------------------------------------------
 
     def _connect(self):
-        """Establish SSH connection."""
+        """Establish SSH connection.
+
+        Tries standard password auth first, then falls back to
+        keyboard-interactive auth (common on Cisco/network switches).
+        Also enables legacy SSH algorithms that older devices may require.
+        """
         self.client = paramiko.SSHClient()
         self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.client.connect(
-            hostname=self.host,
-            port=self.port,
-            username=self.username,
-            password=self.password,
-            timeout=SSH_CONNECT_TIMEOUT,
-            look_for_keys=False,
-            allow_agent=False,
-        )
+
+        # Many older network devices require legacy algorithms that modern
+        # paramiko disables by default.
+        disabled_algorithms = {
+            "pubkeys": ["rsa-sha2-256", "rsa-sha2-512"],
+        }
+
+        try:
+            # Attempt standard password authentication first
+            self.client.connect(
+                hostname=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                timeout=SSH_CONNECT_TIMEOUT,
+                look_for_keys=False,
+                allow_agent=False,
+                disabled_algorithms=disabled_algorithms,
+            )
+        except paramiko.AuthenticationException:
+            # Fall back to keyboard-interactive authentication.
+            # Many network switches (Cisco, etc.) use this method and
+            # reject standard password auth.
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            transport = paramiko.Transport((self.host, self.port))
+            transport.connect(username=self.username)
+
+            def _kbd_interactive_handler(title, instructions, prompt_list):
+                """Respond to each keyboard-interactive prompt with the
+                password."""
+                return [self.password for _ in prompt_list]
+
+            transport.auth_interactive(self.username, _kbd_interactive_handler)
+            self.client._transport = transport
 
     def _disconnect(self):
         """Close SSH connection."""
