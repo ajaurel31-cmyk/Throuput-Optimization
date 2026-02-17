@@ -216,6 +216,90 @@ Examples:
 
         <!-- Tab: Diagnostics -->
         <div id="tab-diagnostics" class="tab-content">
+
+            <!-- iPerf3 Bandwidth Test -->
+            <div class="card iperf-section">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Bandwidth Test (iPerf3)</div>
+                        <div class="card-subtitle">Test actual throughput between ATL and PHX servers and diagnose bottlenecks</div>
+                    </div>
+                </div>
+                <div class="alert alert-info" style="margin-bottom: 1rem;">
+                    The target server must be running <code>iperf3 -s</code> (server mode) on the specified port.
+                    <a href="https://iperf.fr/iperf-download.php" target="_blank" style="color: var(--accent);">Download iPerf3</a>
+                </div>
+                <div class="iperf-form-grid">
+                    <div class="form-group" style="grid-column: span 2;">
+                        <label class="form-label">Target Server (iPerf3 server IP)</label>
+                        <input type="text" class="form-input" id="iperf-target" placeholder="e.g., 10.20.30.40 (PHX server running iperf3 -s)">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">iPerf3 Port</label>
+                        <input type="number" class="form-input" id="iperf-port" value="5201" min="1" max="65535">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Duration (seconds)</label>
+                        <select class="form-select" id="iperf-duration">
+                            <option value="5">5 sec</option>
+                            <option value="10" selected>10 sec</option>
+                            <option value="20">20 sec</option>
+                            <option value="30">30 sec</option>
+                            <option value="60">60 sec</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Parallel Streams</label>
+                        <select class="form-select" id="iperf-parallel">
+                            <option value="1" selected>1 stream</option>
+                            <option value="2">2 streams</option>
+                            <option value="4">4 streams</option>
+                            <option value="8">8 streams</option>
+                            <option value="16">16 streams</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Direction</label>
+                        <select class="form-select" id="iperf-direction">
+                            <option value="send">Send (ATL &rarr; PHX)</option>
+                            <option value="receive">Receive (PHX &rarr; ATL)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Protocol</label>
+                        <select class="form-select" id="iperf-protocol" onchange="toggleUdpOptions()">
+                            <option value="tcp" selected>TCP</option>
+                            <option value="udp">UDP</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="iperf-udp-bw-group" style="display: none;">
+                        <label class="form-label">UDP Target Bandwidth</label>
+                        <input type="text" class="form-input" id="iperf-udp-bandwidth" value="1G" placeholder="e.g., 1G, 500M">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">TCP Window Size (optional)</label>
+                        <input type="text" class="form-input" id="iperf-window" placeholder="e.g., 4M, 512K (blank = auto)">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Link Speed</label>
+                        <select class="form-select" id="iperf-link-speed">
+                            <option value="1">1 Gbps</option>
+                            <option value="10" selected>10 Gbps</option>
+                            <option value="25">25 Gbps</option>
+                            <option value="40">40 Gbps</option>
+                            <option value="100">100 Gbps</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn btn-primary" onclick="runIperfTest()">&#x1F680; Run Bandwidth Test</button>
+                    <span id="iperf-status" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                </div>
+            </div>
+
+            <!-- iPerf3 Results -->
+            <div id="iperf-results"></div>
+
             <div class="card">
                 <div class="card-header">
                     <div>

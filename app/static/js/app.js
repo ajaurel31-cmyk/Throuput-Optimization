@@ -909,6 +909,278 @@ function toggleDiagDetail(header) {
 }
 
 // ========================================
+// iPerf3 Bandwidth Test
+// ========================================
+function toggleUdpOptions() {
+    const proto = document.getElementById('iperf-protocol').value;
+    document.getElementById('iperf-udp-bw-group').style.display = proto === 'udp' ? '' : 'none';
+}
+
+async function runIperfTest() {
+    const target = document.getElementById('iperf-target').value.trim();
+    if (!target) {
+        alert('Enter the target server IP address (the server running iperf3 -s)');
+        return;
+    }
+
+    const port = parseInt(document.getElementById('iperf-port').value) || 5201;
+    const duration = parseInt(document.getElementById('iperf-duration').value) || 10;
+    const parallel = parseInt(document.getElementById('iperf-parallel').value) || 1;
+    const direction = document.getElementById('iperf-direction').value;
+    const protocol = document.getElementById('iperf-protocol').value;
+    const udpBandwidth = document.getElementById('iperf-udp-bandwidth').value.trim() || '1G';
+    const windowSize = document.getElementById('iperf-window').value.trim();
+    const linkSpeed = parseFloat(document.getElementById('iperf-link-speed').value) || 10;
+
+    const statusEl = document.getElementById('iperf-status');
+    statusEl.textContent = 'Starting bandwidth test...';
+    statusEl.style.color = 'var(--text-secondary)';
+
+    showLoading(`Running iPerf3 bandwidth test to ${target}... This will take ~${duration + 5} seconds.`);
+
+    try {
+        const resp = await fetch('/api/iperf/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target: target,
+                port: port,
+                duration: duration,
+                parallel: parallel,
+                reverse: direction === 'receive',
+                udp: protocol === 'udp',
+                udp_bandwidth: udpBandwidth,
+                window_size: windowSize,
+                link_speed_gbps: linkSpeed,
+                source_label: state.settings.siteA,
+                target_label: state.settings.siteB,
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = `Error: ${data.error}`;
+            statusEl.style.color = 'var(--critical)';
+            alert(`iPerf3 Error: ${data.error}`);
+            return;
+        }
+
+        statusEl.textContent = 'Test complete!';
+        statusEl.style.color = 'var(--success)';
+        renderIperfResults(data.report);
+    } catch (e) {
+        statusEl.textContent = `Failed: ${e.message}`;
+        statusEl.style.color = 'var(--critical)';
+        alert(`iPerf3 test failed: ${e.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+function renderIperfResults(report) {
+    const container = document.getElementById('iperf-results');
+    if (!report || !report.test_result) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const r = report.test_result;
+    const pct = report.efficiency_percent;
+    const barClass = pct < 30 ? 'low' : pct < 70 ? 'medium' : 'high';
+
+    const healthClass = {
+        healthy: 'health-healthy',
+        degraded: 'health-degraded',
+        impaired: 'health-impaired',
+        critical: 'health-critical',
+    }[report.health] || 'health-unknown';
+
+    let html = '';
+
+    // Error state
+    if (r.status === 'error') {
+        html += `
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">Bandwidth Test Failed</div>
+                <span class="health-badge health-critical">ERROR</span>
+            </div>
+            <div class="alert alert-warning">${escapeHtml(r.error_message)}</div>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.8; margin-top: 1rem;">
+                <strong>Troubleshooting:</strong><br>
+                1. Verify iPerf3 is installed: <code>iperf3 --version</code><br>
+                2. Verify the remote server is running: <code>iperf3 -s</code><br>
+                3. Check firewall allows port 5201 (TCP + UDP) between the servers<br>
+                4. Test connectivity: <code>Test-NetConnection -ComputerName ${escapeHtml(report.target)} -Port 5201</code>
+            </div>
+        </div>`;
+        container.innerHTML = html;
+        return;
+    }
+
+    // Throughput gauge
+    html += `
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <div class="card-title">Bandwidth Test Results: ${escapeHtml(report.source)} &rarr; ${escapeHtml(report.target)}</div>
+                <div class="card-subtitle">${report.timestamp}</div>
+            </div>
+            <span class="health-badge ${healthClass}">${report.health}</span>
+        </div>
+
+        <!-- Throughput Stats -->
+        <div class="iperf-stats-row">
+            <div class="iperf-stat">
+                <div class="iperf-stat-value ${pct >= 80 ? 'success' : pct >= 50 ? 'warning' : 'critical'}">${r.throughput_mbps.toFixed(1)}</div>
+                <div class="iperf-stat-label">Mbps</div>
+            </div>
+            <div class="iperf-stat">
+                <div class="iperf-stat-value">${r.throughput_gbps.toFixed(3)}</div>
+                <div class="iperf-stat-label">Gbps</div>
+            </div>
+            <div class="iperf-stat">
+                <div class="iperf-stat-value">${pct.toFixed(1)}%</div>
+                <div class="iperf-stat-label">Efficiency</div>
+            </div>`;
+
+    if (r.protocol === 'tcp') {
+        html += `
+            <div class="iperf-stat">
+                <div class="iperf-stat-value ${r.retransmits > 100 ? 'critical' : r.retransmits > 0 ? 'warning' : 'success'}">${r.retransmits}</div>
+                <div class="iperf-stat-label">Retransmits</div>
+            </div>`;
+    } else {
+        html += `
+            <div class="iperf-stat">
+                <div class="iperf-stat-value ${r.loss_percent > 5 ? 'critical' : r.loss_percent > 1 ? 'warning' : 'success'}">${r.loss_percent.toFixed(1)}%</div>
+                <div class="iperf-stat-label">Packet Loss</div>
+            </div>`;
+    }
+
+    html += `
+        </div>
+
+        <!-- Throughput gauge bar -->
+        <div class="throughput-gauge">
+            <div class="throughput-bar ${barClass}" style="width: ${Math.max(pct, 5)}%">
+                ${r.throughput_mbps.toFixed(0)} Mbps
+            </div>
+        </div>
+        <div class="throughput-labels">
+            <span>0 Mbps</span>
+            <span>${pct.toFixed(1)}% of link capacity</span>
+            <span>${report.link_speed_gbps * 1000} Mbps (${report.link_speed_gbps}G max)</span>
+        </div>
+    </div>`;
+
+    // Detailed metrics
+    html += `<div class="card">
+        <div class="card-title">Test Details</div>
+        <div class="diag-detail-grid" style="margin-top: 1rem;">`;
+
+    if (r.protocol === 'tcp') {
+        html += `
+            <div class="diag-detail-item"><span class="diag-detail-label">Protocol</span><span class="diag-detail-value">TCP</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Streams</span><span class="diag-detail-value">${r.parallel_streams}</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Duration</span><span class="diag-detail-value">${r.duration_sec.toFixed(0)}s</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Transferred</span><span class="diag-detail-value">${formatBytes(r.bytes_transferred)}</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Retransmits</span><span class="diag-detail-value">${r.retransmits}</span></div>`;
+
+        if (r.mean_rtt_us > 0) {
+            html += `
+            <div class="diag-detail-item"><span class="diag-detail-label">Avg RTT</span><span class="diag-detail-value">${(r.mean_rtt_us / 1000).toFixed(1)}ms</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Min RTT</span><span class="diag-detail-value">${(r.min_rtt_us / 1000).toFixed(1)}ms</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Max RTT</span><span class="diag-detail-value">${(r.max_rtt_us / 1000).toFixed(1)}ms</span></div>`;
+        }
+        if (r.max_snd_cwnd > 0) {
+            html += `
+            <div class="diag-detail-item"><span class="diag-detail-label">Max TCP Window</span><span class="diag-detail-value">${(r.max_snd_cwnd / 1024).toFixed(0)} KB</span></div>`;
+        }
+    } else {
+        html += `
+            <div class="diag-detail-item"><span class="diag-detail-label">Protocol</span><span class="diag-detail-value">UDP</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Duration</span><span class="diag-detail-value">${r.duration_sec.toFixed(0)}s</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Jitter</span><span class="diag-detail-value">${r.jitter_ms.toFixed(3)}ms</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Packet Loss</span><span class="diag-detail-value">${r.lost_packets} / ${r.total_packets} (${r.loss_percent.toFixed(1)}%)</span></div>`;
+    }
+
+    if (r.host_cpu_total > 0) {
+        html += `
+            <div class="diag-detail-item"><span class="diag-detail-label">Local CPU</span><span class="diag-detail-value">${r.host_cpu_total.toFixed(0)}%</span></div>
+            <div class="diag-detail-item"><span class="diag-detail-label">Remote CPU</span><span class="diag-detail-value">${r.remote_cpu_total.toFixed(0)}%</span></div>`;
+    }
+
+    html += `</div>`;
+
+    // Per-stream breakdown (multi-stream)
+    if (r.streams && r.streams.length > 1) {
+        html += `
+        <div style="margin-top: 1rem;">
+            <div class="form-label">Per-Stream Breakdown</div>
+            <div class="iperf-stream-table">
+                <table>
+                    <thead><tr><th>Stream</th><th>Throughput</th><th>Retransmits</th><th>RTT (avg)</th><th>Window</th></tr></thead>
+                    <tbody>`;
+        for (const s of r.streams) {
+            html += `<tr>
+                <td>#${s.stream_id}</td>
+                <td class="mono">${s.throughput_mbps.toFixed(1)} Mbps</td>
+                <td class="mono">${s.retransmits || 0}</td>
+                <td class="mono">${s.mean_rtt ? (s.mean_rtt / 1000).toFixed(1) + 'ms' : '-'}</td>
+                <td class="mono">${s.max_snd_cwnd ? (s.max_snd_cwnd / 1024).toFixed(0) + ' KB' : '-'}</td>
+            </tr>`;
+        }
+        html += `</tbody></table></div></div>`;
+    }
+
+    html += `</div>`;
+
+    // Bottleneck Diagnosis
+    if (report.diagnoses && report.diagnoses.length > 0) {
+        html += `<div class="card">
+            <div class="card-header">
+                <div class="card-title">Bottleneck Diagnosis</div>
+            </div>`;
+
+        for (const d of report.diagnoses) {
+            const severityClass = d.severity === 'critical' ? 'critical' : d.severity === 'warning' ? 'warning' : 'info';
+            html += `
+            <div class="finding ${severityClass}">
+                <div class="finding-header">
+                    <span class="finding-severity severity-${severityClass}">${d.severity}</span>
+                    <span class="finding-category">${escapeHtml(d.bottleneck_location)}</span>
+                    <span class="finding-device">confidence: ${d.confidence}</span>
+                </div>
+                <div class="finding-title">${escapeHtml(d.title)}</div>
+                <div class="finding-detail">${escapeHtml(d.detail)}</div>
+                <div class="finding-recommendation">${escapeHtml(d.recommendation)}</div>
+            </div>`;
+        }
+
+        html += `</div>`;
+    }
+
+    // Overall Verdict
+    if (report.overall_verdict) {
+        html += `
+        <div class="card">
+            <div class="card-title">Test Summary</div>
+            <div class="summary-box">${escapeHtml(report.overall_verdict)}</div>
+        </div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+// ========================================
 // Settings
 // ========================================
 function updateSettings() {

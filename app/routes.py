@@ -4,6 +4,7 @@ Flask routes for the Network Throughput Bottleneck Analyzer.
 
 import os
 import json
+import re
 import uuid
 
 from flask import (
@@ -20,6 +21,7 @@ from app.parsers import GenericConfigParser
 from app.analyzers.bottleneck_engine import BottleneckAnalyzer
 from app.analyzers.claude_analyzer import ClaudeAnalyzer
 from app.diagnostics import NetworkDiagnostics
+from app.diagnostics.iperf_tester import IperfTester
 from app.connectors import SSHConfigFetcher
 
 main_bp = Blueprint("main", __name__)
@@ -427,6 +429,61 @@ def ssh_fetch_config():
             "config_preview": config_text[:500] + ("..." if len(config_text) > 500 else ""),
         }
     )
+
+
+@main_bp.route("/api/iperf/test", methods=["POST"])
+def run_iperf_test():
+    """Run an iperf3 bandwidth test and diagnose bottlenecks."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    target = data.get("target", "").strip()
+    if not target:
+        return jsonify({"error": "Target server IP or hostname is required"}), 400
+    if not _is_valid_host(target):
+        return jsonify({"error": "Invalid target. Use a hostname or IP address."}), 400
+
+    port = int(data.get("port", 5201))
+    if not (1 <= port <= 65535):
+        return jsonify({"error": "Port must be between 1 and 65535"}), 400
+
+    duration = min(max(int(data.get("duration", 10)), 5), 60)
+    parallel = min(max(int(data.get("parallel", 1)), 1), 16)
+    reverse = bool(data.get("reverse", False))
+    udp = bool(data.get("udp", False))
+    udp_bandwidth = data.get("udp_bandwidth", "1G").strip()
+    window_size = data.get("window_size", "").strip() or None
+    link_speed = float(data.get("link_speed_gbps", 10))
+    source_label = data.get("source_label", "ATL").strip()
+    target_label = data.get("target_label", "PHX").strip()
+
+    # Validate udp_bandwidth format
+    if udp and not re.match(r"^\d+[KMG]?$", udp_bandwidth, re.IGNORECASE):
+        return jsonify({"error": "Invalid UDP bandwidth format. Use e.g. 1G, 500M, 100K"}), 400
+
+    # Validate window_size format if provided
+    if window_size and not re.match(r"^\d+[KM]?$", window_size, re.IGNORECASE):
+        return jsonify({"error": "Invalid window size format. Use e.g. 4M, 512K"}), 400
+
+    tester = IperfTester(
+        target=target,
+        port=port,
+        link_speed_gbps=link_speed,
+        source_label=source_label,
+        target_label=target_label,
+    )
+
+    report = tester.run_test(
+        duration=duration,
+        parallel=parallel,
+        reverse=reverse,
+        udp=udp,
+        udp_bandwidth=udp_bandwidth,
+        window_size=window_size,
+    )
+
+    return jsonify({"status": "ok", "report": report.to_dict()})
 
 
 def _is_valid_host(host):
