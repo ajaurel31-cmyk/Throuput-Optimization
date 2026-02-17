@@ -427,6 +427,7 @@ def ssh_fetch_config():
                 "source_host": host,
             },
             "config_preview": config_text[:500] + ("..." if len(config_text) > 500 else ""),
+            "config_full": config_text,
         }
     )
 

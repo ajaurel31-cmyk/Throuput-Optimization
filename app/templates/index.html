@@ -116,8 +116,11 @@
                     <span id="ssh-status" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
                 </div>
                 <div id="ssh-preview" style="display: none; margin-top: 1rem;">
-                    <div class="form-label">Config Preview</div>
-                    <pre style="background: var(--bg-tertiary); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem; max-height: 200px; overflow-y: auto; color: var(--text-secondary);"><code id="ssh-preview-text"></code></pre>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="form-label" style="margin: 0;">Config Preview</div>
+                        <button id="ssh-preview-toggle" class="btn" style="font-size: 0.75rem; padding: 0.2rem 0.6rem;" onclick="toggleConfigView()">View Full Config</button>
+                    </div>
+                    <pre id="ssh-preview-pre" style="background: var(--bg-tertiary); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem; max-height: 200px; overflow-y: auto; color: var(--text-secondary); margin-top: 0.5rem;"><code id="ssh-preview-text"></code></pre>
                 </div>
             </div>
 

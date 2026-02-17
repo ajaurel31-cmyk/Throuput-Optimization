@@ -111,6 +111,22 @@ function renderDeviceRoleOptions() {
     });
 }
 
+function toggleConfigView() {
+    const textEl = document.getElementById('ssh-preview-text');
+    const preEl = document.getElementById('ssh-preview-pre');
+    const btn = document.getElementById('ssh-preview-toggle');
+    state._sshConfigExpanded = !state._sshConfigExpanded;
+    if (state._sshConfigExpanded) {
+        textEl.textContent = state._sshConfigFull;
+        preEl.style.maxHeight = '600px';
+        btn.textContent = 'Collapse';
+    } else {
+        textEl.textContent = state._sshConfigPreview;
+        preEl.style.maxHeight = '200px';
+        btn.textContent = 'View Full Config';
+    }
+}
+
 async function sshFetchConfig() {
     const host = document.getElementById('ssh-host').value.trim();
     const port = parseInt(document.getElementById('ssh-port').value) || 22;
@@ -157,7 +173,11 @@ async function sshFetchConfig() {
 
         // Show config preview
         if (data.config_preview) {
+            state._sshConfigPreview = data.config_preview;
+            state._sshConfigFull = data.config_full || data.config_preview;
+            state._sshConfigExpanded = false;
             document.getElementById('ssh-preview-text').textContent = data.config_preview;
+            document.getElementById('ssh-preview-toggle').textContent = 'View Full Config';
             previewEl.style.display = 'block';
         }
 
