@@ -11,7 +11,10 @@ import time
 import re
 import socket
 
-import paramiko
+try:
+    import paramiko
+except ImportError:
+    paramiko = None
 
 
 # Commands to run per device type.  Each entry is a list of (setup, config)
@@ -59,6 +62,12 @@ class SSHConfigFetcher:
           - hostname: device hostname if detected
           - message: error message if status == "error"
         """
+        if paramiko is None:
+            return {
+                "status": "error",
+                "message": "paramiko is not installed. Run: pip install paramiko",
+            }
+
         try:
             self._connect()
 
