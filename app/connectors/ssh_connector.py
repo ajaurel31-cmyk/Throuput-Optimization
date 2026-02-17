@@ -336,9 +336,10 @@ class SSHConfigFetcher:
                 output += chunk
                 lower = output.lower()
 
-                # Respond to username prompt
-                if lower.rstrip().endswith("username:") or \
-                   lower.rstrip().endswith("login:"):
+                # Respond to username prompt (handles "Username:",
+                # "User Name:", "Login:", etc.)
+                if re.search(r"(user\s*name|username|login)\s*:\s*$",
+                             lower.rstrip()):
                     shell.send(self.username + "\n")
                     output = ""  # reset – password prompt comes next
                     continue
