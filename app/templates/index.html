@@ -67,6 +67,60 @@
 
         <!-- Tab: Upload -->
         <div id="tab-upload" class="tab-content active">
+            <!-- SSH Fetch -->
+            <div class="card" style="margin-bottom: 1rem;">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">SSH Config Fetch</div>
+                        <div class="card-subtitle">Connect to switches and firewalls via SSH to download configs automatically</div>
+                    </div>
+                </div>
+                <br>
+                <div class="ssh-form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Host / IP Address</label>
+                        <input type="text" class="form-input" id="ssh-host" placeholder="e.g., 10.1.1.1">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Port</label>
+                        <input type="number" class="form-input" id="ssh-port" value="22" min="1" max="65535" style="width: 100px;">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" class="form-input" id="ssh-username" placeholder="admin">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" class="form-input" id="ssh-password" placeholder="password">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Device Type</label>
+                        <select class="form-select" id="ssh-device-type">
+                            <option value="auto">Auto-Detect</option>
+                            <option value="cisco">Cisco IOS / NX-OS</option>
+                            <option value="paloalto">Palo Alto PAN-OS</option>
+                            <option value="juniper">Juniper JunOS</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Device Role in Path</label>
+                        <select class="form-select device-role-select" id="ssh-device-role"></select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Device Name (optional)</label>
+                        <input type="text" class="form-input" id="ssh-device-name" placeholder="Auto-detected from config">
+                    </div>
+                </div>
+                <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn btn-primary" onclick="sshFetchConfig()">&#x1F50C; Connect &amp; Fetch Config</button>
+                    <span id="ssh-status" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                </div>
+                <div id="ssh-preview" style="display: none; margin-top: 1rem;">
+                    <div class="form-label">Config Preview</div>
+                    <pre style="background: var(--bg-tertiary); padding: 0.75rem; border-radius: 6px; font-size: 0.8rem; max-height: 200px; overflow-y: auto; color: var(--text-secondary);"><code id="ssh-preview-text"></code></pre>
+                </div>
+            </div>
+
             <div class="upload-grid">
                 <!-- File Upload -->
                 <div class="card">

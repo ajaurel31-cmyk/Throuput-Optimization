@@ -20,6 +20,7 @@ from app.parsers import GenericConfigParser
 from app.analyzers.bottleneck_engine import BottleneckAnalyzer
 from app.analyzers.claude_analyzer import ClaudeAnalyzer
 from app.diagnostics import NetworkDiagnostics
+from app.connectors import SSHConfigFetcher
 
 main_bp = Blueprint("main", __name__)
 
@@ -333,6 +334,99 @@ def run_port_scan():
     diag = NetworkDiagnostics(target)
     result = diag.test_tcp_ports(ports=ports)
     return jsonify({"status": "ok", "result": result.to_dict()})
+
+
+@main_bp.route("/api/ssh-fetch", methods=["POST"])
+def ssh_fetch_config():
+    """SSH into a network device and fetch its running config."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    host = data.get("host", "").strip()
+    username = data.get("username", "").strip()
+    password = data.get("password", "")
+    device_type = data.get("device_type", "auto").strip()
+    port = int(data.get("port", 22))
+    device_name = data.get("device_name", "").strip()
+    device_role = data.get("device_role", "")
+
+    # Validate required fields
+    if not host:
+        return jsonify({"error": "Host IP or hostname is required"}), 400
+    if not username:
+        return jsonify({"error": "Username is required"}), 400
+    if not password:
+        return jsonify({"error": "Password is required"}), 400
+    if not _is_valid_host(host):
+        return jsonify({"error": "Invalid host. Use a hostname or IP address."}), 400
+    if device_role and device_role not in VALID_ROLES:
+        return jsonify({"error": f"Invalid device role: {device_role}"}), 400
+    if not (1 <= port <= 65535):
+        return jsonify({"error": "Port must be between 1 and 65535"}), 400
+
+    # Fetch config via SSH
+    fetcher = SSHConfigFetcher(
+        host=host,
+        username=username,
+        password=password,
+        device_type=device_type,
+        port=port,
+    )
+    result = fetcher.fetch()
+
+    if result["status"] != "success":
+        return jsonify({"error": result["message"]}), 400
+
+    config_text = result["config_text"]
+    if not config_text.strip():
+        return jsonify({"error": "Retrieved config is empty. Check device credentials and permissions."}), 400
+
+    # Use detected hostname as device name if not provided
+    if not device_name:
+        device_name = result.get("hostname") or host
+
+    # Save the fetched config to file
+    file_id = str(uuid.uuid4())[:8]
+    safe_name = f"ssh_{host.replace('.', '_')}.conf"
+    save_path = os.path.join(
+        current_app.config["UPLOAD_FOLDER"], f"{file_id}_{safe_name}"
+    )
+    with open(save_path, "w") as f:
+        f.write(config_text)
+
+    # Parse the config
+    parsed = GenericConfigParser.parse(config_text, device_name, device_role or "unknown")
+    parsed["file_id"] = file_id
+    parsed["filename"] = safe_name
+    parsed["source"] = "ssh"
+    parsed["source_host"] = host
+
+    # If role was provided, store in session
+    if device_role:
+        if "devices" not in session:
+            session["devices"] = []
+        session["devices"].append(parsed)
+        session.modified = True
+
+    return jsonify(
+        {
+            "status": "ok",
+            "device": {
+                "file_id": file_id,
+                "device_name": parsed.get("device_name", device_name),
+                "device_role": device_role,
+                "vendor": parsed.get("vendor", "unknown"),
+                "interface_count": len(parsed.get("interfaces", [])),
+                "warnings": parsed.get("warnings", []),
+                "detected_type": result.get("device_type", "unknown"),
+                "hostname": result.get("hostname"),
+                "source": "ssh",
+                "source_host": host,
+            },
+            "config_preview": config_text[:500] + ("..." if len(config_text) > 500 else ""),
+        }
+    )
 
 
 def _is_valid_host(host):

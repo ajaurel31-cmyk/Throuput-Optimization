@@ -1122,6 +1122,35 @@ body {
     border-bottom: none;
 }
 
+/* SSH Fetch Form */
+.ssh-form-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 1rem;
+}
+
+.ssh-form-grid .form-group:nth-child(5),
+.ssh-form-grid .form-group:nth-child(6),
+.ssh-form-grid .form-group:nth-child(7) {
+    /* second row */
+}
+
+@media (max-width: 900px) {
+    .ssh-form-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 600px) {
+    .ssh-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.bg-tertiary {
+    background: var(--bg-primary);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .main-container {

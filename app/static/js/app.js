@@ -111,6 +111,78 @@ function renderDeviceRoleOptions() {
     });
 }
 
+async function sshFetchConfig() {
+    const host = document.getElementById('ssh-host').value.trim();
+    const port = parseInt(document.getElementById('ssh-port').value) || 22;
+    const username = document.getElementById('ssh-username').value.trim();
+    const password = document.getElementById('ssh-password').value;
+    const deviceType = document.getElementById('ssh-device-type').value;
+    const deviceRole = document.getElementById('ssh-device-role').value;
+    const deviceName = document.getElementById('ssh-device-name').value.trim();
+    const statusEl = document.getElementById('ssh-status');
+    const previewEl = document.getElementById('ssh-preview');
+
+    if (!host) { alert('Enter the device IP address or hostname'); return; }
+    if (!username) { alert('Enter the SSH username'); return; }
+    if (!password) { alert('Enter the SSH password'); return; }
+    if (!deviceRole) { alert('Select the device role in the network path'); return; }
+
+    showLoading(`Connecting to ${host} via SSH...`);
+    statusEl.textContent = 'Connecting...';
+    previewEl.style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/ssh-fetch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                host, port, username, password,
+                device_type: deviceType,
+                device_role: deviceRole,
+                device_name: deviceName,
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = `Failed: ${data.error}`;
+            statusEl.style.color = 'var(--critical)';
+            alert(`SSH Error: ${data.error}`);
+            return;
+        }
+
+        // Success
+        statusEl.textContent = `Connected! Detected: ${data.device.detected_type} | Vendor: ${data.device.vendor} | ${data.device.interface_count} interfaces`;
+        statusEl.style.color = 'var(--success)';
+
+        // Show config preview
+        if (data.config_preview) {
+            document.getElementById('ssh-preview-text').textContent = data.config_preview;
+            previewEl.style.display = 'block';
+        }
+
+        // Add to device list
+        state.devices.push(data.device);
+        renderDeviceList();
+        renderNetworkPath();
+
+        // Clear password for security
+        document.getElementById('ssh-password').value = '';
+
+        if (data.device.warnings && data.device.warnings.length > 0) {
+            showAlert(`Parser warnings for ${data.device.device_name}: ${data.device.warnings.join('; ')}`, 'warning');
+        }
+
+        showAlert(`Config fetched from ${host} (${data.device.vendor})`, 'success');
+    } catch (e) {
+        statusEl.textContent = `Connection failed: ${e.message}`;
+        statusEl.style.color = 'var(--critical)';
+        alert(`SSH fetch failed: ${e.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
 async function uploadFile() {
     const fileInput = document.getElementById('file-input');
     const deviceName = document.getElementById('file-device-name').value.trim();
