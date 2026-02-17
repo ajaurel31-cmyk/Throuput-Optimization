@@ -8,6 +8,7 @@ import re
 from app.parsers.cisco_parser import CiscoConfigParser
 from app.parsers.paloalto_parser import PaloAltoConfigParser
 from app.parsers.juniper_parser import JuniperConfigParser
+from app.parsers.windows_parser import WindowsConfigParser
 
 
 class GenericConfigParser:
@@ -44,6 +45,23 @@ class GenericConfigParser:
         ):
             return "juniper"
 
+        # Windows Server detection (PowerShell / netsh output)
+        if any(
+            kw in text_lower
+            for kw in [
+                "get-netadapter",
+                "get-nettcpsetting",
+                "get-netipconfig",
+                "netsh interface tcp",
+                "autotuninglevellolocal",
+                "receive window auto-tuning level",
+                "linkspeed",
+                "interfacedescription",
+                "mtusize",
+            ]
+        ):
+            return "windows"
+
         # Cisco detection (broadest — check last)
         if any(
             kw in text_lower
@@ -72,6 +90,8 @@ class GenericConfigParser:
 
         if vendor == "cisco":
             parser = CiscoConfigParser(config_text, device_name)
+        elif vendor == "windows":
+            parser = WindowsConfigParser(config_text, device_name)
         elif vendor == "paloalto":
             parser = PaloAltoConfigParser(config_text, device_name)
         elif vendor == "juniper":
