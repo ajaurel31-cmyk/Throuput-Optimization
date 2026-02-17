@@ -53,6 +53,9 @@ class SSHConfigFetcher:
         self.password = password
         self.device_type = device_type.lower()
         self.client = None
+        # True when SSH-level auth is 'none' and the device handles login
+        # via its own Username:/Password: prompts on the shell.
+        self._needs_shell_login = False
 
     def fetch(self):
         """
@@ -146,10 +149,12 @@ class SSHConfigFetcher:
 
         Tries multiple authentication strategies to handle the wide variety
         of SSH implementations found on network devices:
-          1. Standard password auth (with legacy algorithm support)
-          2. Keyboard-interactive auth via Transport (for switches that
-             reject normal password auth, e.g. many Cisco devices)
-          3. Direct password auth via Transport
+          1. ``none`` auth via Transport – some devices (older Cisco switches)
+             accept no SSH-level auth and instead present Username:/Password:
+             prompts on the interactive shell.
+          2. Standard password auth via SSHClient.connect()
+          3. Keyboard-interactive auth via Transport
+          4. Direct password auth via Transport
         """
         # Disable rsa-sha2 variants that many older switches don't support,
         # forcing paramiko to fall back to ssh-rsa.
@@ -159,10 +164,51 @@ class SSHConfigFetcher:
 
         errors = []
 
-        # --- Strategy 1: Standard SSHClient.connect() ---
+        # --- Strategy 1: ``none`` auth (device handles login on shell) ---
         try:
-            logger.info("SSH to %s:%s – trying standard password auth",
-                        self.host, self.port)
+            logger.info("SSH to %s:%s – trying 'none' auth", self.host,
+                        self.port)
+            sock = socket.create_connection(
+                (self.host, self.port), timeout=SSH_CONNECT_TIMEOUT
+            )
+            transport = paramiko.Transport(sock)
+            transport.start_client(timeout=SSH_CONNECT_TIMEOUT)
+            transport.auth_none(self.username)
+
+            # auth_none succeeded – device will prompt on the shell
+            self.client = paramiko.SSHClient()
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.client._transport = transport
+            self._needs_shell_login = True
+            logger.info("SSH to %s – 'none' auth accepted (shell login "
+                        "required)", self.host)
+            return  # success
+        except paramiko.BadAuthenticationType:
+            # Server rejected 'none' and told us the real allowed methods –
+            # that's fine, move on to password-based strategies.
+            errors.append("none auth: rejected (expected)")
+            logger.info("SSH to %s – 'none' auth rejected, trying password "
+                        "methods", self.host)
+            try:
+                transport.close()
+            except Exception:
+                pass
+        except paramiko.AuthenticationException as e:
+            errors.append(f"none auth: {e}")
+            logger.info("SSH to %s – 'none' auth failed: %s", self.host, e)
+            try:
+                transport.close()
+            except Exception:
+                pass
+        except Exception as e:
+            errors.append(f"none auth connect: {e}")
+            logger.info("SSH to %s – 'none' auth connect failed: %s",
+                        self.host, e)
+
+        # --- Strategy 2: Standard SSHClient.connect() ---
+        try:
+            logger.info("SSH to %s – trying standard password auth",
+                        self.host)
             self.client = paramiko.SSHClient()
             self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
             self.client.connect(
@@ -189,7 +235,7 @@ class SSHConfigFetcher:
             logger.info("SSH to %s – standard connect failed: %s",
                         self.host, e)
 
-        # --- Strategy 2: Keyboard-interactive via Transport ---
+        # --- Strategy 3: Keyboard-interactive via Transport ---
         try:
             logger.info("SSH to %s – trying keyboard-interactive auth",
                         self.host)
@@ -197,7 +243,6 @@ class SSHConfigFetcher:
                 (self.host, self.port), timeout=SSH_CONNECT_TIMEOUT
             )
             transport = paramiko.Transport(sock)
-            transport.set_log_channel(__name__)
             transport.start_client(timeout=SSH_CONNECT_TIMEOUT)
 
             def _kbd_interactive_handler(title, instructions, prompt_list):
@@ -208,7 +253,7 @@ class SSHConfigFetcher:
             if not transport.is_authenticated():
                 transport.close()
                 raise paramiko.AuthenticationException(
-                    "keyboard-interactive auth completed but not authenticated"
+                    "keyboard-interactive completed but not authenticated"
                 )
 
             self.client = paramiko.SSHClient()
@@ -226,7 +271,7 @@ class SSHConfigFetcher:
             logger.info("SSH to %s – keyboard-interactive connect failed: %s",
                         self.host, e)
 
-        # --- Strategy 3: Password auth via Transport ---
+        # --- Strategy 4: Password auth via Transport ---
         try:
             logger.info("SSH to %s – trying transport password auth",
                         self.host)
@@ -234,14 +279,13 @@ class SSHConfigFetcher:
                 (self.host, self.port), timeout=SSH_CONNECT_TIMEOUT
             )
             transport = paramiko.Transport(sock)
-            transport.set_log_channel(__name__)
             transport.start_client(timeout=SSH_CONNECT_TIMEOUT)
             transport.auth_password(self.username, self.password)
 
             if not transport.is_authenticated():
                 transport.close()
                 raise paramiko.AuthenticationException(
-                    "transport password auth completed but not authenticated"
+                    "transport password completed but not authenticated"
                 )
 
             self.client = paramiko.SSHClient()
@@ -273,13 +317,59 @@ class SSHConfigFetcher:
             except Exception:
                 pass
 
+    def _shell_login(self, shell):
+        """Handle device-level Username:/Password: prompts on the shell.
+
+        Some devices use ``none`` SSH auth and present their own interactive
+        login prompts after the shell is opened.  This method reads the
+        initial output, detects login prompts, and responds accordingly.
+
+        Returns the shell output collected *after* successful login (i.e.
+        the first real device prompt / banner).
+        """
+        output = ""
+        start = time.time()
+
+        while time.time() - start < SSH_CONNECT_TIMEOUT:
+            if shell.recv_ready():
+                chunk = shell.recv(65535).decode("utf-8", errors="replace")
+                output += chunk
+                lower = output.lower()
+
+                # Respond to username prompt
+                if lower.rstrip().endswith("username:") or \
+                   lower.rstrip().endswith("login:"):
+                    shell.send(self.username + "\n")
+                    output = ""  # reset – password prompt comes next
+                    continue
+
+                # Respond to password prompt
+                if lower.rstrip().endswith("password:"):
+                    shell.send(self.password + "\n")
+                    output = ""  # reset – wait for device prompt
+                    time.sleep(2)
+                    # Collect whatever comes after login
+                    if shell.recv_ready():
+                        output = shell.recv(65535).decode(
+                            "utf-8", errors="replace"
+                        )
+                    return output
+            else:
+                time.sleep(0.5)
+
+        return output
+
     def _detect_device_type(self):
         """Detect device type from the SSH banner and initial output."""
         shell = self.client.invoke_shell()
         time.sleep(2)  # let the prompt settle
-        output = ""
-        if shell.recv_ready():
-            output = shell.recv(65535).decode("utf-8", errors="replace")
+
+        if self._needs_shell_login:
+            output = self._shell_login(shell)
+        else:
+            output = ""
+            if shell.recv_ready():
+                output = shell.recv(65535).decode("utf-8", errors="replace")
         shell.close()
 
         output_lower = output.lower()
@@ -299,9 +389,14 @@ class SSHConfigFetcher:
         """Execute setup + config commands and return combined output."""
         shell = self.client.invoke_shell(width=512)
         time.sleep(1)
-        # Drain initial prompt
-        if shell.recv_ready():
-            shell.recv(65535)
+
+        # Handle shell-level login if device uses 'none' SSH auth
+        if self._needs_shell_login:
+            self._shell_login(shell)
+        else:
+            # Drain initial prompt
+            if shell.recv_ready():
+                shell.recv(65535)
 
         # Run setup commands (disable paging, etc.)
         for cmd in commands.get("setup", []):
