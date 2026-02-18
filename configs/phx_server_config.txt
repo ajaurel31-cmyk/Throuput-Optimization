@@ -1,0 +1,94 @@
+=== Hostname ===
+PHX-SRV01
+
+=== Get-NetAdapter ===
+
+Name                      : Ethernet0
+InterfaceDescription      : Intel(R) Ethernet Converged Network Adapter X710-DA2
+Status                    : Up
+MacAddress                : 00-50-56-B2-4C-5D
+LinkSpeed                 : 10 Gbps
+MediaType                 : 802.3
+MTUSize                   : 1500
+FullDuplex                : True
+ComputerName              : PHX-SRV01
+
+Name                      : Ethernet1
+InterfaceDescription      : Intel(R) Ethernet Converged Network Adapter X710-DA2 #2
+Status                    : Disconnected
+MacAddress                : 00-50-56-B2-4C-5E
+LinkSpeed                 : 0 bps
+MediaType                 : 802.3
+MTUSize                   : 1500
+FullDuplex                : False
+ComputerName              : PHX-SRV01
+
+=== Get-NetIPConfiguration ===
+
+InterfaceAlias       : Ethernet0
+InterfaceIndex       : 3
+InterfaceDescription : Intel(R) Ethernet Converged Network Adapter X710-DA2
+IPv4Address          : 10.2.100.10
+IPv4DefaultGateway   : 10.2.100.1
+DNSServer            : 10.2.100.5
+
+=== Get-NetTCPSetting ===
+
+SettingName                    : InternetCustom
+AutoTuningLevelLocal           : HighlyLimited
+CongestionProvider             : NewReno
+InitialCongestionWindow        : 4
+InitialRto                     : 3000
+ScalingHeuristics              : Enabled
+Timestamps                     : Disabled
+MaxSynRetransmissions          : 2
+NonSackRttResiliency           : Disabled
+ForceWS                        : Disabled
+DelayedAckTimeout              : 200
+MemoryPressureProtection       : Enabled
+
+SettingName                    : DatacenterCustom
+AutoTuningLevelLocal           : HighlyLimited
+CongestionProvider             : NewReno
+InitialCongestionWindow        : 4
+InitialRto                     : 3000
+ScalingHeuristics              : Enabled
+Timestamps                     : Disabled
+
+=== Get-NetTCPConnection Summary ===
+
+Count Name
+----- ----
+   38 Established
+   22 TimeWait
+    9 CloseWait
+    6 Listen
+
+=== netsh interface tcp show global ===
+
+Querying active state...
+
+TCP Global Parameters
+----------------------------------------------
+Receive-Side Scaling State          : Enabled
+Receive Window Auto-Tuning Level    : HighlyLimited
+Add-On Congestion Control Provider  : NewReno
+ECN Capability                      : Disabled
+RFC 1323 Timestamps                 : Disabled
+Initial RTO                         : 3000
+Receive Segment Coalescing State    : Enabled
+Non Sack Rtt Resiliency             : Disabled
+Max SYN Retransmissions             : 2
+Fast Open                           : Disabled
+Fast Open Fallback                  : Enabled
+HyStart                             : Disabled
+Proportional Rate Reduction         : Disabled
+Pacing Profile                      : Off
+
+=== netsh interface tcp show supplemental ===
+
+TCP Supplemental Parameters
+----------------------------------------------
+Min RTO (msec)                      : 300
+Initial Congestion Window (MSS)     : 4
+Delayed Ack Timeout (msec)          : 200
