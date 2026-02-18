@@ -1,6 +1,47 @@
 {
     "description": "Maps config files to device names and roles. Drop your config files in this folder and add an entry here.",
-    "devices": [],
+    "devices": [
+        {
+            "filename": "atl_srv01_config.txt",
+            "device_name": "ATL-SRV01",
+            "device_role": "source_server"
+        },
+        {
+            "filename": "atl_core_sw01_config.txt",
+            "device_name": "ATL-CORE-SW01",
+            "device_role": "core_switch_local"
+        },
+        {
+            "filename": "atl_fw01_config.txt",
+            "device_name": "ATL-FW01",
+            "device_role": "firewall_local"
+        },
+        {
+            "filename": "atl_edge_sw01_config.txt",
+            "device_name": "ATL-EDGE-SW01",
+            "device_role": "edge_switch_local"
+        },
+        {
+            "filename": "phx_edge_sw01_config.txt",
+            "device_name": "PHX-EDGE-SW01",
+            "device_role": "edge_switch_remote"
+        },
+        {
+            "filename": "phx_fw01_config.txt",
+            "device_name": "PHX-FW01",
+            "device_role": "firewall_remote"
+        },
+        {
+            "filename": "phx_core_sw01_config.txt",
+            "device_name": "PHX-CORE-SW01",
+            "device_role": "core_switch_remote"
+        },
+        {
+            "filename": "phx_srv01_config.txt",
+            "device_name": "PHX-SRV01",
+            "device_role": "target_server"
+        }
+    ],
     "valid_roles": [
         "source_server",
         "core_switch_local",
