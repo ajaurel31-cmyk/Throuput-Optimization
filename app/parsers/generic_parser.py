@@ -18,7 +18,7 @@ class GenericConfigParser:
         """Detect the vendor based on config text patterns."""
         text_lower = config_text.lower()
 
-        # Palo Alto detection
+        # Palo Alto detection (set-format and XML from 'show config running')
         if any(
             kw in text_lower
             for kw in [
@@ -27,6 +27,9 @@ class GenericConfigParser:
                 "set network interface ethernet",
                 "set network zone",
                 "paloaltonetworks",
+                "<deviceconfig>",
+                "<rulebase>",
+                "<ssl-forward-proxy",
             ]
         ):
             return "paloalto"

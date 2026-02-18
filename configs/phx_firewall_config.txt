@@ -1,48 +1,170 @@
-! PHX Firewall - Palo Alto PA-5260
-! Mirror of ATL firewall on the Phoenix side
+<!-- PHX Firewall - Palo Alto PA-5260 -->
+<!-- Output of: show config running -->
+<!-- Mirror of ATL firewall on the Phoenix side -->
 
-set deviceconfig system hostname PHX-FW01
+<config>
+  <deviceconfig>
+    <system>
+      <hostname>PHX-FW01</hostname>
+    </system>
+  </deviceconfig>
 
-! Interfaces
-set network interface ethernet ethernet1/1 layer3 mtu 1500
-set network interface ethernet ethernet1/1 layer3 ip 10.2.200.254/24
-set network interface ethernet ethernet1/1 link-speed auto
-set network interface ethernet ethernet1/1 link-duplex auto
-set network interface ethernet ethernet1/1 comment "TO-PHX-CORE-SW01"
+  <network>
+    <interface>
+      <ethernet>
+        <entry name="ethernet1/1">
+          <layer3>
+            <mtu>1500</mtu>
+            <ip>
+              <entry name="10.2.200.254/24"/>
+            </ip>
+          </layer3>
+          <link-speed>auto</link-speed>
+          <link-duplex>auto</link-duplex>
+          <comment>TO-PHX-CORE-SW01</comment>
+        </entry>
+        <entry name="ethernet1/2">
+          <layer3>
+            <mtu>1500</mtu>
+            <ip>
+              <entry name="10.2.210.1/30"/>
+            </ip>
+          </layer3>
+          <link-speed>auto</link-speed>
+          <link-duplex>auto</link-duplex>
+          <comment>TO-PHX-EDGE-SW01</comment>
+        </entry>
+      </ethernet>
+    </interface>
+    <zone>
+      <entry name="trust">
+        <network>
+          <layer3>
+            <member>ethernet1/1</member>
+          </layer3>
+        </network>
+      </entry>
+      <entry name="untrust">
+        <network>
+          <layer3>
+            <member>ethernet1/2</member>
+          </layer3>
+        </network>
+      </entry>
+    </zone>
+    <qos>
+      <profile>
+        <entry name="DATA-TRANSFER">
+          <max-bandwidth>2000</max-bandwidth>
+        </entry>
+      </profile>
+    </qos>
+  </network>
 
-set network interface ethernet ethernet1/2 layer3 mtu 1500
-set network interface ethernet ethernet1/2 layer3 ip 10.2.210.1/30
-set network interface ethernet ethernet1/2 link-speed auto
-set network interface ethernet ethernet1/2 link-duplex auto
-set network interface ethernet ethernet1/2 comment "TO-PHX-EDGE-SW01"
+  <rulebase>
+    <security>
+      <rules>
+        <entry name="ALLOW-ATL-TO-PHX">
+          <from><member>untrust</member></from>
+          <to><member>trust</member></to>
+          <source><member>10.1.100.0/24</member></source>
+          <destination><member>10.2.100.0/24</member></destination>
+          <application><member>any</member></application>
+          <action>allow</action>
+          <profile-setting>
+            <group><member>STRICT-SECURITY</member></group>
+          </profile-setting>
+        </entry>
+        <entry name="ALLOW-PHX-TO-ATL">
+          <from><member>trust</member></from>
+          <to><member>untrust</member></to>
+          <source><member>10.2.100.0/24</member></source>
+          <destination><member>10.1.100.0/24</member></destination>
+          <application><member>any</member></application>
+          <action>allow</action>
+          <profile-setting>
+            <group><member>STRICT-SECURITY</member></group>
+          </profile-setting>
+        </entry>
+        <entry name="DENY-ALL">
+          <from><member>any</member></from>
+          <to><member>any</member></to>
+          <application><member>any</member></application>
+          <action>deny</action>
+        </entry>
+      </rules>
+    </security>
+    <decryption>
+      <rules>
+        <entry name="DECRYPT-ALL">
+          <from><member>untrust</member></from>
+          <to><member>trust</member></to>
+          <action>decrypt</action>
+          <type>
+            <ssl-forward-proxy/>
+          </type>
+        </entry>
+      </rules>
+    </decryption>
+    <nat>
+      <rules>
+        <entry name="PHX-OUTBOUND">
+          <source-translation>
+            <dynamic-ip-and-port>
+              <interface-address>
+                <interface>ethernet1/2</interface>
+              </interface-address>
+            </dynamic-ip-and-port>
+          </source-translation>
+        </entry>
+      </rules>
+    </nat>
+  </rulebase>
 
-! Zones
-set network zone trust network layer3 ethernet1/1
-set network zone untrust network layer3 ethernet1/2
-
-! Security Rules
-set rulebase security rules ALLOW-ATL-TO-PHX from untrust to trust source 10.1.100.0/24 destination 10.2.100.0/24 application any action allow
-set rulebase security rules ALLOW-ATL-TO-PHX profile-setting group STRICT-SECURITY
-set rulebase security rules ALLOW-PHX-TO-ATL from trust to untrust source 10.2.100.0/24 destination 10.1.100.0/24 application any action allow
-set rulebase security rules ALLOW-PHX-TO-ATL profile-setting group STRICT-SECURITY
-set rulebase security rules DENY-ALL from any to any application any action deny
-
-! SSL Decryption - MAJOR throughput impact!
-set rulebase decryption rules DECRYPT-ALL from untrust to trust action decrypt
-set rulebase decryption rules DECRYPT-ALL type ssl-forward-proxy
-
-! Threat Prevention Profiles
-set profiles vulnerability STRICT-IPS rules critical action reset-both
-set profiles vulnerability STRICT-IPS rules high action reset-both
-set profiles vulnerability STRICT-IPS rules medium action alert
-set profiles spyware STRICT-SPYWARE rules critical action reset-both
-set profiles antivirus STRICT-AV rules http action reset-both
-set profiles antivirus STRICT-AV rules ftp action reset-both
-set profiles file-blocking STRICT-FB rules block-all application any action block
-set profiles wildfire-analysis STRICT-WF rules all application any action forward
-
-! NAT
-set rulebase nat rules PHX-OUTBOUND source-translation dynamic-ip-and-port interface-address interface ethernet1/2
-
-! QoS - note the bandwidth limit
-set network qos profile DATA-TRANSFER max-bandwidth 2000
+  <profiles>
+    <vulnerability>
+      <entry name="STRICT-IPS">
+        <rules>
+          <entry name="critical"><action><reset-both/></action></entry>
+          <entry name="high"><action><reset-both/></action></entry>
+          <entry name="medium"><action><alert/></action></entry>
+        </rules>
+      </entry>
+    </vulnerability>
+    <spyware>
+      <entry name="STRICT-SPYWARE">
+        <rules>
+          <entry name="critical"><action><reset-both/></action></entry>
+        </rules>
+      </entry>
+    </spyware>
+    <antivirus>
+      <entry name="STRICT-AV">
+        <rules>
+          <entry name="http"><action><reset-both/></action></entry>
+          <entry name="ftp"><action><reset-both/></action></entry>
+        </rules>
+      </entry>
+    </antivirus>
+    <file-blocking>
+      <entry name="STRICT-FB">
+        <rules>
+          <entry name="block-all">
+            <application><member>any</member></application>
+            <action>block</action>
+          </entry>
+        </rules>
+      </entry>
+    </file-blocking>
+    <wildfire-analysis>
+      <entry name="STRICT-WF">
+        <rules>
+          <entry name="all">
+            <application><member>any</member></application>
+            <action>forward</action>
+          </entry>
+        </rules>
+      </entry>
+    </wildfire-analysis>
+  </profiles>
+</config>
