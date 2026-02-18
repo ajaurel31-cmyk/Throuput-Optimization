@@ -23,6 +23,7 @@ from app.analyzers.claude_analyzer import ClaudeAnalyzer
 from app.diagnostics import NetworkDiagnostics
 from app.diagnostics.iperf_tester import IperfTester
 from app.connectors import SSHConfigFetcher
+from app.config_loader import get_preloaded_devices, load_configs
 
 main_bp = Blueprint("main", __name__)
 
@@ -43,6 +44,17 @@ VALID_ROLES = {
 
 def _allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+@main_bp.before_request
+def _inject_preloaded_configs():
+    """Seed new sessions with auto-loaded configs from configs/ directory."""
+    if "_configs_seeded" not in session:
+        preloaded = get_preloaded_devices()
+        if preloaded:
+            session["devices"] = preloaded
+            session["_configs_seeded"] = True
+            session.modified = True
 
 
 @main_bp.route("/")
@@ -572,6 +584,37 @@ def _run_selected_tests(diag, test_names):
 
     diag._calculate_health(report)
     return report
+
+
+@main_bp.route("/api/configs/reload", methods=["POST"])
+def reload_configs():
+    """Re-scan configs/ directory and reload into current session."""
+    loaded = load_configs()
+    # Merge: keep manually-uploaded devices, replace auto-loaded ones
+    manual_devices = [
+        d for d in session.get("devices", [])
+        if d.get("source") != "auto-loaded"
+    ]
+    session["devices"] = manual_devices + loaded
+    session["_configs_seeded"] = True
+    session.modified = True
+    return jsonify(
+        {
+            "status": "ok",
+            "auto_loaded": len(loaded),
+            "manual_kept": len(manual_devices),
+            "total_devices": len(session["devices"]),
+            "devices": [
+                {
+                    "device_name": d.get("device_name"),
+                    "device_role": d.get("device_role"),
+                    "vendor": d.get("vendor"),
+                    "source": d.get("source", "upload"),
+                }
+                for d in session["devices"]
+            ],
+        }
+    )
 
 
 @main_bp.route("/api/status", methods=["GET"])

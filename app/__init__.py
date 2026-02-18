@@ -1,4 +1,5 @@
 import os
+import logging
 from flask import Flask
 
 
@@ -17,5 +18,15 @@ def create_app():
     from app.routes import main_bp
 
     app.register_blueprint(main_bp)
+
+    # Auto-load device configs from configs/ directory
+    from app.config_loader import load_configs
+
+    with app.app_context():
+        loaded = load_configs()
+        if loaded:
+            logging.getLogger(__name__).info(
+                "Pre-loaded %d device config(s) from configs/ directory", len(loaded)
+            )
 
     return app

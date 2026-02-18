@@ -1,0 +1,30 @@
+{
+    "description": "Maps config files to device names and roles. Drop your config files in this folder and add an entry here.",
+    "devices": [
+        {
+            "filename": "switch_config.txt",
+            "device_name": "ATL-CORE-SW01",
+            "device_role": "core_switch_local"
+        },
+        {
+            "filename": "firewall_config.txt",
+            "device_name": "ATL-FW01",
+            "device_role": "firewall_local"
+        },
+        {
+            "filename": "server_config.txt",
+            "device_name": "ATL-SRV01",
+            "device_role": "source_server"
+        }
+    ],
+    "valid_roles": [
+        "source_server",
+        "core_switch_local",
+        "firewall_local",
+        "edge_switch_local",
+        "edge_switch_remote",
+        "firewall_remote",
+        "core_switch_remote",
+        "target_server"
+    ]
+}
