@@ -1,0 +1,101 @@
+=== Hostname ===
+ATL-SRV01
+
+=== Get-NetAdapter ===
+
+Name                      : Ethernet0
+InterfaceDescription      : Intel(R) Ethernet Converged Network Adapter X710-DA2
+Status                    : Up
+MacAddress                : 00-50-56-A1-2B-3C
+LinkSpeed                 : 10 Gbps
+MediaType                 : 802.3
+MTUSize                   : 1500
+FullDuplex                : True
+ComputerName              : ATL-SRV01
+
+Name                      : Ethernet1
+InterfaceDescription      : Intel(R) Ethernet Converged Network Adapter X710-DA2 #2
+Status                    : Up
+MacAddress                : 00-50-56-A1-2B-3D
+LinkSpeed                 : 10 Gbps
+MediaType                 : 802.3
+MTUSize                   : 1500
+FullDuplex                : True
+ComputerName              : ATL-SRV01
+
+=== Get-NetIPConfiguration ===
+
+InterfaceAlias       : Ethernet0
+InterfaceIndex       : 3
+InterfaceDescription : Intel(R) Ethernet Converged Network Adapter X710-DA2
+IPv4Address          : 10.1.100.10
+IPv4DefaultGateway   : 10.1.100.1
+DNSServer            : 10.1.100.5
+
+InterfaceAlias       : Ethernet1
+InterfaceIndex       : 4
+InterfaceDescription : Intel(R) Ethernet Converged Network Adapter X710-DA2 #2
+IPv4Address          : 10.1.100.11
+IPv4DefaultGateway   : 10.1.100.1
+DNSServer            : 10.1.100.5
+
+=== Get-NetTCPSetting ===
+
+SettingName                    : InternetCustom
+AutoTuningLevelLocal           : Normal
+CongestionProvider             : CUBIC
+InitialCongestionWindow        : 10
+InitialRto                     : 1000
+ScalingHeuristics              : Disabled
+Timestamps                     : Disabled
+MaxSynRetransmissions          : 4
+NonSackRttResiliency           : Disabled
+ForceWS                        : Disabled
+DelayedAckTimeout              : 40
+MemoryPressureProtection       : Enabled
+
+SettingName                    : DatacenterCustom
+AutoTuningLevelLocal           : Normal
+CongestionProvider             : CUBIC
+InitialCongestionWindow        : 10
+InitialRto                     : 1000
+ScalingHeuristics              : Disabled
+Timestamps                     : Disabled
+
+=== Get-NetTCPConnection Summary ===
+
+Count Name
+----- ----
+   42 Established
+   18 TimeWait
+   12 CloseWait
+    8 Listen
+
+=== netsh interface tcp show global ===
+
+Querying active state...
+
+TCP Global Parameters
+----------------------------------------------
+Receive-Side Scaling State          : Enabled
+Receive Window Auto-Tuning Level    : Normal
+Add-On Congestion Control Provider  : CUBIC
+ECN Capability                      : Disabled
+RFC 1323 Timestamps                 : Disabled
+Initial RTO                         : 1000
+Receive Segment Coalescing State    : Enabled
+Non Sack Rtt Resiliency             : Disabled
+Max SYN Retransmissions             : 4
+Fast Open                           : Enabled
+Fast Open Fallback                  : Enabled
+HyStart                             : Enabled
+Proportional Rate Reduction         : Enabled
+Pacing Profile                      : Off
+
+=== netsh interface tcp show supplemental ===
+
+TCP Supplemental Parameters
+----------------------------------------------
+Min RTO (msec)                      : 300
+Initial Congestion Window (MSS)     : 10
+Delayed Ack Timeout (msec)          : 40

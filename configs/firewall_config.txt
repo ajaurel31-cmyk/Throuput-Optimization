@@ -1,0 +1,48 @@
+! ATL Firewall - Palo Alto PA-5260
+! This config has throughput-impacting features enabled
+
+set deviceconfig system hostname ATL-FW01
+
+! Interfaces
+set network interface ethernet ethernet1/1 layer3 mtu 1500
+set network interface ethernet ethernet1/1 layer3 ip 10.1.200.254/24
+set network interface ethernet ethernet1/1 link-speed auto
+set network interface ethernet ethernet1/1 link-duplex auto
+set network interface ethernet ethernet1/1 comment "TO-ATL-CORE-SW01"
+
+set network interface ethernet ethernet1/2 layer3 mtu 1500
+set network interface ethernet ethernet1/2 layer3 ip 10.1.210.1/30
+set network interface ethernet ethernet1/2 link-speed auto
+set network interface ethernet ethernet1/2 link-duplex auto
+set network interface ethernet ethernet1/2 comment "TO-ATL-EDGE-SW01"
+
+! Zones
+set network zone trust network layer3 ethernet1/1
+set network zone untrust network layer3 ethernet1/2
+
+! Security Rules
+set rulebase security rules ALLOW-ATL-TO-PHX from trust to untrust source 10.1.100.0/24 destination 10.2.100.0/24 application any action allow
+set rulebase security rules ALLOW-ATL-TO-PHX profile-setting group STRICT-SECURITY
+set rulebase security rules ALLOW-PHX-TO-ATL from untrust to trust source 10.2.100.0/24 destination 10.1.100.0/24 application any action allow
+set rulebase security rules ALLOW-PHX-TO-ATL profile-setting group STRICT-SECURITY
+set rulebase security rules DENY-ALL from any to any application any action deny
+
+! SSL Decryption - MAJOR throughput impact!
+set rulebase decryption rules DECRYPT-ALL from trust to untrust action decrypt
+set rulebase decryption rules DECRYPT-ALL type ssl-forward-proxy
+
+! Threat Prevention Profiles
+set profiles vulnerability STRICT-IPS rules critical action reset-both
+set profiles vulnerability STRICT-IPS rules high action reset-both
+set profiles vulnerability STRICT-IPS rules medium action alert
+set profiles spyware STRICT-SPYWARE rules critical action reset-both
+set profiles antivirus STRICT-AV rules http action reset-both
+set profiles antivirus STRICT-AV rules ftp action reset-both
+set profiles file-blocking STRICT-FB rules block-all application any action block
+set profiles wildfire-analysis STRICT-WF rules all application any action forward
+
+! NAT
+set rulebase nat rules ATL-OUTBOUND source-translation dynamic-ip-and-port interface-address interface ethernet1/2
+
+! QoS - note the bandwidth limit
+set network qos profile DATA-TRANSFER max-bandwidth 2000
