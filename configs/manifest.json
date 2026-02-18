@@ -2,8 +2,8 @@
     "description": "Maps config files to device names and roles. Drop your config files in this folder and add an entry here.",
     "devices": [
         {
-            "filename": "atl_srv01_config.txt",
-            "device_name": "ATL-SRV01",
+            "filename": "atl_win19_test_config.txt",
+            "device_name": "ATL-WIN19-TEST",
             "device_role": "source_server"
         },
         {
