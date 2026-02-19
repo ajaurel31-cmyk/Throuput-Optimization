@@ -319,7 +319,7 @@ class BottleneckAnalyzer:
                     speed_val = speed
                     try:
                         speed_int = int(speed)
-                        if speed_int < 10000:
+                        if speed_int < 5000:
                             self.report.findings.append(
                                 Finding(
                                     severity=SEVERITY_CRITICAL,
@@ -328,11 +328,11 @@ class BottleneckAnalyzer:
                                     title=f"Speed bottleneck: {speed_int} Mbps on {iface.get('name', '?')}",
                                     detail=(
                                         f"Interface {iface.get('name', '?')} on {device_name} "
-                                        f"is set to {speed_int} Mbps. On a 10 Gbps WAN path, "
+                                        f"is set to {speed_int} Mbps. On a 5 Gbps WAN path, "
                                         f"this interface is a hard ceiling for throughput."
                                     ),
                                     recommendation=(
-                                        f"Upgrade or reconfigure to 10G. Check SFP/transceiver type "
+                                        f"Upgrade or reconfigure to 5G+. Check SFP/transceiver type "
                                         f"and cable. Verify the remote end matches."
                                     ),
                                 )
@@ -386,7 +386,7 @@ class BottleneckAnalyzer:
                                     ),
                                     recommendation=(
                                         "Review the configured rate against expected throughput. "
-                                        "If the shaper rate is below 10 Gbps and this applies to "
+                                        "If the shaper rate is below 5 Gbps and this applies to "
                                         "the data transfer traffic, it's your bottleneck. "
                                         "Check with 'show policy-map interface <iface>'."
                                     ),
@@ -528,7 +528,7 @@ class BottleneckAnalyzer:
                             f"Global TCP window size is set to {tcp_window} bytes. "
                             f"For high-bandwidth, high-latency paths (like ATL to PHX, "
                             f"~30-50ms RTT), the bandwidth-delay product requires much "
-                            f"larger windows. BDP = 10 Gbps * 40ms = ~50 MB window needed."
+                            f"larger windows. BDP = 5 Gbps * 40ms = ~25 MB window needed."
                         ),
                         recommendation=(
                             "Enable TCP window scaling (RFC 1323) and increase TCP buffer sizes. "

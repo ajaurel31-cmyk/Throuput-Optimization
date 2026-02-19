@@ -209,7 +209,7 @@ class PaloAltoConfigParser:
                 self.qos_profiles = qos_lines
                 self.warnings.append(
                     "QoS profiles configured on firewall — verify shaping rates "
-                    "are not capping throughput below 10 Gbps"
+                    "are not capping throughput below 5 Gbps"
                 )
 
     def _parse_session_settings(self):

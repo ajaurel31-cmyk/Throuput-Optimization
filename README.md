@@ -4,7 +4,7 @@ A web application for diagnosing network throughput bottlenecks between sites. B
 
 ## Problem Statement
 
-Getting only ~50 MB/s on a 10 Gbps pipe between ATL and PHX? This tool helps you find out why by analyzing your switch and firewall configurations for common throughput killers.
+Getting only ~50 MB/s on a 5 Gbps pipe between ATL and PHX? This tool helps you find out why by analyzing your switch and firewall configurations for common throughput killers.
 
 ## Traffic Path Model
 
