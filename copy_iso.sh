@@ -76,21 +76,9 @@ ISO_SIZE_HUMAN=$(du -h "$ISO_FILE" | cut -f1)
 echo ""
 echo -e "${GREEN}Selected: ${ISO_NAME} (${ISO_SIZE_HUMAN})${NC}"
 
-# --- Prompt for SMB credentials ---
+# --- Mount the SMB share (guest access) ---
 echo ""
-echo -e "${CYAN}Enter credentials for ${SMB_SHARE}:${NC}"
-read -rp "  Username: " SMB_USER
-read -rsp "  Password: " SMB_PASS
-echo ""
-
-if [ -z "$SMB_USER" ] || [ -z "$SMB_PASS" ]; then
-    echo -e "${RED}Error: Username and password are required.${NC}"
-    exit 1
-fi
-
-# --- Mount the SMB share ---
-echo ""
-echo -e "${CYAN}Mounting ${SMB_SHARE}...${NC}"
+echo -e "${CYAN}Mounting ${SMB_SHARE} (guest access)...${NC}"
 mkdir -p "$MOUNT_POINT"
 
 # Unmount if already mounted
@@ -100,7 +88,7 @@ if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
 fi
 
 mount -t cifs "$SMB_SHARE" "$MOUNT_POINT" \
-    -o username="$SMB_USER",password="$SMB_PASS",vers=3.0,iocharset=utf8 2>&1
+    -o guest,vers=3.0,iocharset=utf8 2>&1
 
 if ! mountpoint -q "$MOUNT_POINT"; then
     echo -e "${RED}Error: Failed to mount ${SMB_SHARE}.${NC}"
