@@ -87,12 +87,7 @@ if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
     umount "$MOUNT_POINT" 2>/dev/null || umount -l "$MOUNT_POINT"
 fi
 
-CRED_FILE=$(mktemp)
-echo "username=nobody" > "$CRED_FILE"
-echo "password=" >> "$CRED_FILE"
-mount -t cifs "$SMB_SHARE" "$MOUNT_POINT" \
-    -o credentials="$CRED_FILE",vers=3.0,iocharset=utf8 2>&1
-rm -f "$CRED_FILE"
+mount -t cifs "$SMB_SHARE" "$MOUNT_POINT" -o guest 2>&1
 
 if ! mountpoint -q "$MOUNT_POINT"; then
     echo -e "${RED}Error: Failed to mount ${SMB_SHARE}.${NC}"
