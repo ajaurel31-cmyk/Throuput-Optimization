@@ -16,7 +16,7 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # --- Default ISO storage path on Proxmox ---
-ISO_DIR="/var/lib/vz/template/iso"
+ISO_DIR="/mnt/pve/ATL-PURE01-NFS01/template/iso"
 MOUNT_POINT="/mnt/backup003"
 SMB_SHARE="//10.15.25.14/backup003"
 
