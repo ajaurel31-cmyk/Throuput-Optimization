@@ -1,9 +1,9 @@
 #!/bin/bash
 # ============================================================
 # Proxmox ISO Copy Script with Bandwidth Monitoring
-# Copies an ISO from local Proxmox host to a SMB/CIFS share
-# Source: 10.2.25.92 (this host)
-# Destination: //10.15.25.14/backup003
+# Copies an ISO from SMB/CIFS share to local Proxmox host
+# Source: //10.15.25.14/backup003
+# Destination: 10.2.25.92 (this host)
 # ============================================================
 
 set -euo pipefail
@@ -15,7 +15,7 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# --- Default ISO storage path on Proxmox ---
+# --- Paths ---
 ISO_DIR="/mnt/pve/ATL-PURE01-NFS01/template/iso"
 MOUNT_POINT="/mnt/backup003"
 SMB_SHARE="//10.15.25.14/backup003"
@@ -23,8 +23,8 @@ SMB_SHARE="//10.15.25.14/backup003"
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}  Proxmox ISO Copy with Bandwidth Monitor   ${NC}"
 echo -e "${CYAN}============================================${NC}"
-echo -e "  Source Host : ${GREEN}10.2.25.92${NC}"
-echo -e "  Destination : ${GREEN}${SMB_SHARE}${NC}"
+echo -e "  Source      : ${GREEN}${SMB_SHARE}${NC}"
+echo -e "  Destination : ${GREEN}${ISO_DIR}${NC}"
 echo ""
 
 # --- Check for required tools ---
@@ -36,48 +36,7 @@ for cmd in pv mount.cifs; do
     fi
 done
 
-# --- List available ISO files ---
-echo -e "${CYAN}Available ISO files in ${ISO_DIR}:${NC}"
-echo "--------------------------------------------"
-if [ ! -d "$ISO_DIR" ]; then
-    echo -e "${RED}Error: ISO directory ${ISO_DIR} does not exist.${NC}"
-    read -rp "Enter full path to ISO file: " ISO_FILE
-else
-    mapfile -t ISO_FILES < <(find "$ISO_DIR" -maxdepth 1 -name "*.iso" -type f 2>/dev/null | sort)
-
-    if [ ${#ISO_FILES[@]} -eq 0 ]; then
-        echo -e "${YELLOW}No ISO files found in ${ISO_DIR}.${NC}"
-        read -rp "Enter full path to ISO file: " ISO_FILE
-    else
-        for i in "${!ISO_FILES[@]}"; do
-            SIZE=$(du -h "${ISO_FILES[$i]}" | cut -f1)
-            echo -e "  ${GREEN}[$((i+1))]${NC} $(basename "${ISO_FILES[$i]}") (${SIZE})"
-        done
-        echo ""
-        read -rp "Select ISO by number (or enter full path): " SELECTION
-
-        if [[ "$SELECTION" =~ ^[0-9]+$ ]] && [ "$SELECTION" -ge 1 ] && [ "$SELECTION" -le ${#ISO_FILES[@]} ]; then
-            ISO_FILE="${ISO_FILES[$((SELECTION-1))]}"
-        else
-            ISO_FILE="$SELECTION"
-        fi
-    fi
-fi
-
-# --- Validate ISO file ---
-if [ ! -f "$ISO_FILE" ]; then
-    echo -e "${RED}Error: File not found: ${ISO_FILE}${NC}"
-    exit 1
-fi
-
-ISO_NAME=$(basename "$ISO_FILE")
-ISO_SIZE=$(stat -c%s "$ISO_FILE")
-ISO_SIZE_HUMAN=$(du -h "$ISO_FILE" | cut -f1)
-echo ""
-echo -e "${GREEN}Selected: ${ISO_NAME} (${ISO_SIZE_HUMAN})${NC}"
-
 # --- Mount the SMB share (guest access) ---
-echo ""
 echo -e "${CYAN}Mounting ${SMB_SHARE} (guest access)...${NC}"
 mkdir -p "$MOUNT_POINT"
 
@@ -105,11 +64,61 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# --- List available ISO files on the SMB share ---
+echo ""
+echo -e "${CYAN}Available ISO files on ${SMB_SHARE}:${NC}"
+echo "--------------------------------------------"
+
+mapfile -t ISO_FILES < <(find "$MOUNT_POINT" -maxdepth 1 -name "*.iso" -type f 2>/dev/null | sort)
+
+if [ ${#ISO_FILES[@]} -eq 0 ]; then
+    echo -e "${YELLOW}No ISO files found on ${SMB_SHARE}.${NC}"
+    read -rp "Enter filename on share (or full path): " SELECTION
+    if [[ "$SELECTION" == /* ]]; then
+        ISO_FILE="$SELECTION"
+    else
+        ISO_FILE="${MOUNT_POINT}/${SELECTION}"
+    fi
+else
+    for i in "${!ISO_FILES[@]}"; do
+        SIZE=$(du -h "${ISO_FILES[$i]}" | cut -f1)
+        echo -e "  ${GREEN}[$((i+1))]${NC} $(basename "${ISO_FILES[$i]}") (${SIZE})"
+    done
+    echo ""
+    read -rp "Select ISO by number (or enter filename): " SELECTION
+
+    if [[ "$SELECTION" =~ ^[0-9]+$ ]] && [ "$SELECTION" -ge 1 ] && [ "$SELECTION" -le ${#ISO_FILES[@]} ]; then
+        ISO_FILE="${ISO_FILES[$((SELECTION-1))]}"
+    elif [[ "$SELECTION" == /* ]]; then
+        ISO_FILE="$SELECTION"
+    else
+        ISO_FILE="${MOUNT_POINT}/${SELECTION}"
+    fi
+fi
+
+# --- Validate source ISO file ---
+if [ ! -f "$ISO_FILE" ]; then
+    echo -e "${RED}Error: File not found: ${ISO_FILE}${NC}"
+    exit 1
+fi
+
+ISO_NAME=$(basename "$ISO_FILE")
+ISO_SIZE=$(stat -c%s "$ISO_FILE")
+ISO_SIZE_HUMAN=$(du -h "$ISO_FILE" | cut -f1)
+echo ""
+echo -e "${GREEN}Selected: ${ISO_NAME} (${ISO_SIZE_HUMAN})${NC}"
+
+# --- Validate destination directory ---
+if [ ! -d "$ISO_DIR" ]; then
+    echo -e "${RED}Error: Destination directory ${ISO_DIR} does not exist.${NC}"
+    exit 1
+fi
+
 # --- Check destination space ---
-DEST_AVAIL=$(df --output=avail "$MOUNT_POINT" | tail -1)
+DEST_AVAIL=$(df --output=avail "$ISO_DIR" | tail -1)
 DEST_AVAIL_BYTES=$((DEST_AVAIL * 1024))
 if [ "$ISO_SIZE" -gt "$DEST_AVAIL_BYTES" ]; then
-    DEST_AVAIL_HUMAN=$(df -h --output=avail "$MOUNT_POINT" | tail -1 | xargs)
+    DEST_AVAIL_HUMAN=$(df -h --output=avail "$ISO_DIR" | tail -1 | xargs)
     echo -e "${RED}Error: Not enough space on destination.${NC}"
     echo -e "  File size : ${ISO_SIZE_HUMAN}"
     echo -e "  Available : ${DEST_AVAIL_HUMAN}"
@@ -123,13 +132,13 @@ echo -e "${CYAN}  Starting ISO copy with bandwidth monitor  ${NC}"
 echo -e "${CYAN}============================================${NC}"
 echo -e "  File   : ${ISO_NAME}"
 echo -e "  Size   : ${ISO_SIZE_HUMAN}"
-echo -e "  From   : ${ISO_FILE}"
-echo -e "  To     : ${SMB_SHARE}/${ISO_NAME}"
+echo -e "  From   : ${SMB_SHARE}/${ISO_NAME}"
+echo -e "  To     : ${ISO_DIR}/${ISO_NAME}"
 echo ""
 
 START_TIME=$(date +%s)
 
-pv -petabrI 0.5 "$ISO_FILE" > "${MOUNT_POINT}/${ISO_NAME}"
+pv -petabrI 0.5 "$ISO_FILE" > "${ISO_DIR}/${ISO_NAME}"
 
 END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
@@ -148,7 +157,7 @@ MINUTES=$((ELAPSED / 60))
 SECONDS=$((ELAPSED % 60))
 
 # --- Verify copy ---
-DEST_FILE="${MOUNT_POINT}/${ISO_NAME}"
+DEST_FILE="${ISO_DIR}/${ISO_NAME}"
 if [ -f "$DEST_FILE" ]; then
     DEST_SIZE=$(stat -c%s "$DEST_FILE")
     if [ "$ISO_SIZE" -eq "$DEST_SIZE" ]; then
