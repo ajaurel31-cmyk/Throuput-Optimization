@@ -9,6 +9,7 @@ from app.parsers.cisco_parser import CiscoConfigParser
 from app.parsers.paloalto_parser import PaloAltoConfigParser
 from app.parsers.juniper_parser import JuniperConfigParser
 from app.parsers.windows_parser import WindowsConfigParser
+from app.parsers.linux_parser import LinuxConfigParser
 
 
 class GenericConfigParser:
@@ -47,6 +48,26 @@ class GenericConfigParser:
             ]
         ):
             return "juniper"
+
+        # Linux / Proxmox detection (ip, ethtool, sysctl output)
+        if any(
+            kw in text_lower
+            for kw in [
+                "ip link show",
+                "ip route show",
+                "ethtool ",
+                "bonding mode",
+                "net.ipv4.tcp_",
+                "net.core.rmem_max",
+                "qdisc mq",
+                "qdisc noqueue",
+                "master bond",
+                "/proc/net/bonding",
+                "slave interface:",
+                "active aggregator:",
+            ]
+        ):
+            return "linux"
 
         # Windows Server detection (PowerShell / netsh output)
         if any(
@@ -93,6 +114,8 @@ class GenericConfigParser:
 
         if vendor == "cisco":
             parser = CiscoConfigParser(config_text, device_name)
+        elif vendor == "linux":
+            parser = LinuxConfigParser(config_text, device_name)
         elif vendor == "windows":
             parser = WindowsConfigParser(config_text, device_name)
         elif vendor == "paloalto":

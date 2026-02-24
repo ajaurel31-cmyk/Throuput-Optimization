@@ -130,6 +130,7 @@ class BottleneckAnalyzer:
         self._check_qos_shaping()
         self._check_firewall_overhead()
         self._check_tcp_settings()
+        self._check_routing_bottlenecks()
         self._check_device_warnings()
         self._calculate_risk()
         self._generate_summary()
@@ -538,6 +539,118 @@ class BottleneckAnalyzer:
                     )
                 )
 
+    def _check_routing_bottlenecks(self):
+        """
+        Check for traffic routed through slow interfaces when faster NICs are
+        available on the same host. Common on multi-homed servers (Proxmox,
+        hypervisors, storage servers) where the default route goes through a
+        management bridge backed by 1G while 10G/25G NICs sit unused.
+        """
+        for device in self.devices:
+            if device.get("vendor") != "linux":
+                continue
+
+            device_name = device.get("device_name", "unknown")
+
+            # Build interface speed map
+            speed_map = {}
+            mtu_map = {}
+            for iface in device.get("interfaces", []):
+                if iface.get("speed_mbps") and not iface.get("shutdown"):
+                    speed_map[iface["name"]] = iface["speed_mbps"]
+                if iface.get("mtu"):
+                    mtu_map[iface["name"]] = iface["mtu"]
+
+            if not speed_map:
+                continue
+
+            max_speed = max(speed_map.values())
+
+            # Check route lookups for misrouted traffic
+            for lookup in device.get("route_lookups", []):
+                if lookup.get("local"):
+                    continue
+
+                dest = lookup.get("destination", "?")
+                route_iface = lookup.get("interface", "?")
+
+                # Resolve effective speed for bridges/bonds
+                route_speed = speed_map.get(route_iface)
+                if route_speed is None:
+                    # Check if this is a bridge backed by a bond
+                    for iface in device.get("interfaces", []):
+                        if iface.get("bond_slave") and iface.get("speed_mbps"):
+                            route_speed = iface["speed_mbps"]
+                            break
+
+                if route_speed and route_speed < max_speed:
+                    self.report.findings.append(
+                        Finding(
+                            severity=SEVERITY_CRITICAL,
+                            category="routing",
+                            device=device_name,
+                            title=(
+                                f"Routing bottleneck: {dest} via "
+                                f"{route_iface} ({route_speed} Mbps) — "
+                                f"{max_speed // 1000}G NIC available"
+                            ),
+                            detail=(
+                                f"Traffic to {dest} is routed through "
+                                f"{route_iface} which is backed by a "
+                                f"{route_speed} Mbps link, but this host "
+                                f"has {max_speed // 1000}G NIC(s) available. "
+                                f"Effective throughput is hard-capped at "
+                                f"~{route_speed * 95 // 800} MB/s."
+                            ),
+                            recommendation=(
+                                f"Add a static route for {dest} (or its "
+                                f"subnet) through the faster NIC:\n"
+                                f"  ip route add {dest}/32 dev <fast-nic> "
+                                f"src <local-ip-on-fast-nic>\n"
+                                f"Or for the whole subnet:\n"
+                                f"  ip route add <subnet>/24 dev <fast-nic>\n"
+                                f"Make routes persistent in "
+                                f"/etc/network/interfaces or netplan config."
+                            ),
+                        )
+                    )
+
+            # Check bond speed vs available NICs
+            for bond in device.get("bonds", []):
+                slaves = bond.get("slaves", [])
+                if not slaves:
+                    continue
+                bond_max = max(
+                    s.get("speed_mbps", 0) for s in slaves
+                )
+                if bond_max < max_speed:
+                    self.report.findings.append(
+                        Finding(
+                            severity=SEVERITY_WARNING,
+                            category="speed_duplex",
+                            device=device_name,
+                            title=(
+                                f"Bond slaves at {bond_max} Mbps vs "
+                                f"{max_speed // 1000}G standalone NICs"
+                            ),
+                            detail=(
+                                f"Bond0 uses {len(slaves)}x "
+                                f"{bond_max} Mbps slaves "
+                                f"({bond.get('mode', 'unknown')} mode). "
+                                f"Single-flow throughput through the bond is "
+                                f"limited to {bond_max} Mbps per LACP hash. "
+                                f"Meanwhile, standalone NICs on this host "
+                                f"support up to {max_speed} Mbps."
+                            ),
+                            recommendation=(
+                                "Route bulk-transfer traffic through the "
+                                "faster standalone NIC(s) instead of the "
+                                "bond/bridge. Reserve the bond for VM/mgmt "
+                                "traffic."
+                            ),
+                        )
+                    )
+
     def _check_device_warnings(self):
         """Propagate warnings from individual device parsers."""
         for device in self.devices:
@@ -589,6 +702,12 @@ class BottleneckAnalyzer:
                     estimated = min(estimated, 100)
                 elif "mtu mismatch" in f.title.lower():
                     estimated = min(estimated, estimated * 0.7)
+                elif "routing bottleneck" in f.title.lower():
+                    # Extract the Mbps from the finding
+                    import re
+                    speed_m = re.search(r"\((\d+)\s*Mbps\)", f.title)
+                    if speed_m:
+                        estimated = min(estimated, int(speed_m.group(1)))
 
             elif f.severity == SEVERITY_WARNING:
                 if "shaping" in f.title.lower() or "policing" in f.title.lower():

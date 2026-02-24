@@ -1,0 +1,109 @@
+==============================
+HOSTNAME
+==============================
+ATL-PROXMOX02
+
+==============================
+IP ROUTE TABLE (ip route show)
+==============================
+default via 10.2.25.1 dev vmbr0 proto kernel
+10.2.25.0/24 dev vmbr0 proto kernel scope link src 10.2.25.92
+10.15.25.0/24 via 10.2.25.1 dev vmbr0
+
+==============================
+IP ROUTE GET (targeted lookups)
+==============================
+# ip route get 10.15.25.14
+10.15.25.14 via 10.2.25.1 dev vmbr0 src 10.2.25.92 uid 0
+    cache
+
+# ip route get 10.2.25.92
+local 10.2.25.92 dev lo src 10.2.25.92 uid 0
+    cache <local>
+
+==============================
+IP LINK SHOW
+==============================
+1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: eno8303: <BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP> mtu 1500 qdisc mq master bond0 state UP mode DEFAULT group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:01 brd ff:ff:ff:ff:ff:ff
+3: eno8403: <BROADCAST,MULTICAST,SLAVE,UP,LOWER_UP> mtu 1500 qdisc mq master bond0 state UP mode DEFAULT group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:02 brd ff:ff:ff:ff:ff:ff
+4: ens7f0np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:03 brd ff:ff:ff:ff:ff:ff
+5: eno12399np0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 9000 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:04 brd ff:ff:ff:ff:ff:ff
+6: bond0: <BROADCAST,MULTICAST,MASTER,UP,LOWER_UP> mtu 1500 qdisc noqueue master vmbr0 state UP mode DEFAULT group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:01 brd ff:ff:ff:ff:ff:ff
+7: vmbr0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP mode DEFAULT group default qlen 1000
+    link/ether aa:bb:cc:dd:ee:01 brd ff:ff:ff:ff:ff:ff
+
+==============================
+ETHTOOL (link speeds)
+==============================
+# ethtool eno8303
+Settings for eno8303:
+        Speed: 1000Mb/s
+        Duplex: Full
+        Auto-negotiation: on
+        Link detected: yes
+
+# ethtool eno8403
+Settings for eno8403:
+        Speed: 1000Mb/s
+        Duplex: Full
+        Auto-negotiation: on
+        Link detected: yes
+
+# ethtool ens7f0np0
+Settings for ens7f0np0:
+        Speed: 25000Mb/s
+        Duplex: Full
+        Auto-negotiation: off
+        Link detected: yes
+
+# ethtool eno12399np0
+Settings for eno12399np0:
+        Speed: 10000Mb/s
+        Duplex: Full
+        Auto-negotiation: off
+        Link detected: yes
+
+==============================
+BOND STATUS (cat /proc/net/bonding/bond0)
+==============================
+Ethernet Channel Bonding Driver: v5.15.131-1-pve
+Bonding Mode: IEEE 802.3ad Dynamic link aggregation
+LACP Rate: fast
+MII Status: up
+Active Aggregator: eno8303
+Slave Interface: eno8303
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+
+Slave Interface: eno8403
+MII Status: up
+Speed: 1000 Mbps
+Duplex: full
+
+==============================
+SYSCTL TCP SETTINGS
+==============================
+net.ipv4.tcp_window_scaling = 1
+net.core.rmem_max = 212992
+net.core.wmem_max = 212992
+net.core.rmem_default = 212992
+net.core.wmem_default = 212992
+net.ipv4.tcp_rmem = 4096 131072 6291456
+net.ipv4.tcp_wmem = 4096 16384 4194304
+net.ipv4.tcp_mtu_probing = 0
+net.ipv4.tcp_congestion_control = cubic
+
+==============================
+IP ADDRESS (ip -4 addr show)
+==============================
+1: lo    inet 127.0.0.1/8 scope host lo
+7: vmbr0 inet 10.2.25.92/24 scope global vmbr0
+4: ens7f0np0 inet 10.15.25.92/24 scope global ens7f0np0

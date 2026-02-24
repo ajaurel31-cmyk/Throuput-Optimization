@@ -40,6 +40,11 @@
             "filename": "phx_srv01_config.txt",
             "device_name": "PHX-SRV01",
             "device_role": "target_server"
+        },
+        {
+            "filename": "atl_proxmox02_config.txt",
+            "device_name": "ATL-PROXMOX02",
+            "device_role": "source_server"
         }
     ],
     "valid_roles": [
