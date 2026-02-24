@@ -143,13 +143,37 @@ else
     echo -e "  ${GREEN}    ${ROUTE_LINE}${NC}"
 fi
 
+# --- MTU mismatch warning ---
+echo ""
+echo -e "${CYAN}[5.5/6] Checking MTU compatibility...${NC}"
+if [ "$MTU" -gt 1500 ]; then
+    echo -e "  ${YELLOW}WARNING: MTU MISMATCH detected!${NC}"
+    echo -e "  ${FAST_NIC} MTU: ${MTU} (jumbo)"
+    echo -e "  ExaGrid bond0 MTU: 1500 (standard)"
+    echo ""
+    echo -e "  ${YELLOW}Options to resolve:${NC}"
+    echo -e "    A) Lower Proxmox NIC to match ExaGrid (safe, no ExaGrid change):${NC}"
+    echo -e "       ${GREEN}ip link set ${FAST_NIC} mtu 1500${NC}"
+    echo -e ""
+    echo -e "    B) Raise ExaGrid bond0 to jumbo (requires ExaGrid admin + switch support):${NC}"
+    echo -e "       ExaGrid UI -> Configuration -> Network -> bond0 -> IP MTU: 9000"
+    echo -e "       Also set jumbo MTU on the switch ports connecting to ExaGrid"
+    echo ""
+    echo -e "  ${YELLOW}Until resolved: TCP MSS clamping will prevent data loss, but${NC}"
+    echo -e "  ${YELLOW}you won't get jumbo frame benefits. Performance still improves${NC}"
+    echo -e "  ${YELLOW}massively (1G -> 10G) from the routing fix alone.${NC}"
+fi
+
 # --- Summary ---
 echo ""
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}  Summary                                  ${NC}"
 echo -e "${CYAN}============================================${NC}"
 echo -e "  Before : vmbr0/bond0 (eno8303) at 1 Gbps      = ~112 MB/s ceiling"
-echo -e "  After  : ${FAST_NIC} at ${SPEED} Mb/s, MTU ${MTU}  = ~${SPEED}Mb/s ceiling"
+echo -e "  After  : ${FAST_NIC} at ${SPEED} Mb/s, MTU ${MTU}"
+echo -e "  ExaGrid: bond0 (10G bonded pair), MTU 1500"
+echo -e "  Effective ceiling: 10 Gbps (ExaGrid bond0)     = ~1.18 GB/s"
+echo -e "  ${GREEN}Improvement: ~10x throughput increase${NC}"
 echo ""
 echo -e "  ${YELLOW}Recommended: test with a quick SMB copy or iperf3:${NC}"
 echo -e "    iperf3 -c ${EXAGRID_IP} -t 10 -P 4"
@@ -158,7 +182,7 @@ echo -e "${CYAN}============================================${NC}"
 
 # --- Also recommend TCP tuning ---
 echo ""
-echo -e "${YELLOW}Optional: TCP buffer tuning for 25G throughput:${NC}"
+echo -e "${YELLOW}Optional: TCP buffer tuning for 10G throughput:${NC}"
 echo "  sysctl -w net.core.rmem_max=67108864"
 echo "  sysctl -w net.core.wmem_max=67108864"
 echo "  sysctl -w net.ipv4.tcp_rmem='4096 1048576 67108864'"

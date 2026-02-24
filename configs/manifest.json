@@ -45,6 +45,11 @@
             "filename": "atl_proxmox02_config.txt",
             "device_name": "ATL-PROXMOX02",
             "device_role": "source_server"
+        },
+        {
+            "filename": "phx_exagrid01_config.txt",
+            "device_name": "PHX-EXAGRID01",
+            "device_role": "target_server"
         }
     ],
     "valid_roles": [
