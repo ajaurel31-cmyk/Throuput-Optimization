@@ -1836,6 +1836,8 @@ async function startCapture() {
 async function stopCapture() {
     if (!state.activeCapture) return;
 
+    // Snapshot the capture info before any async operations
+    const captureId = state.activeCapture.capture_id;
     const statusEl = document.getElementById('pcap-capture-status');
     statusEl.textContent = 'Stopping capture...';
 
@@ -1848,21 +1850,28 @@ async function stopCapture() {
         const resp = await fetch('/api/capture/stop', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ capture_id: state.activeCapture.capture_id }),
+            body: JSON.stringify({ capture_id: captureId }),
         });
         const data = await resp.json();
 
         if (data.error) {
-            statusEl.textContent = `Error: ${data.error}`;
-            statusEl.style.color = 'var(--critical)';
-        } else {
+            // Capture may have already completed via polling — treat as success
+            if (data.error.includes('not found') || data.error.includes('already completed') || data.error.includes('No active capture')) {
+                statusEl.textContent = 'Capture already completed.';
+                statusEl.style.color = 'var(--success)';
+                await refreshCaptureList();
+            } else {
+                statusEl.textContent = `Error: ${data.error}`;
+                statusEl.style.color = 'var(--critical)';
+            }
+        } else if (data.capture) {
             const cap = data.capture;
             statusEl.textContent = `Capture complete: ${cap.filename} (${cap.packet_count} packets, ${formatBytes(cap.file_size_bytes)})`;
             statusEl.style.color = 'var(--success)';
             // Auto-select in analyze dropdown
             await refreshCaptureList();
             const sel = document.getElementById('pcap-analyze-file');
-            if (sel) {
+            if (sel && cap.filename) {
                 for (const opt of sel.options) {
                     if (opt.value === cap.filename) {
                         sel.value = cap.filename;
@@ -1873,6 +1882,10 @@ async function stopCapture() {
             // Pre-fill source/target IPs
             if (cap.source_ip) document.getElementById('pcap-analyze-src').value = cap.source_ip;
             if (cap.target_ip) document.getElementById('pcap-analyze-dst').value = cap.target_ip;
+        } else {
+            statusEl.textContent = 'Capture stopped.';
+            statusEl.style.color = 'var(--success)';
+            await refreshCaptureList();
         }
     } catch (e) {
         statusEl.textContent = `Stop failed: ${e.message}`;
@@ -1887,13 +1900,19 @@ async function stopCapture() {
 async function pollCaptureStatus() {
     if (!state.activeCapture) return;
 
+    // Snapshot capture_id before async operations
+    const captureId = state.activeCapture.capture_id;
+
     try {
         const resp = await fetch('/api/capture/status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ capture_id: state.activeCapture.capture_id }),
+            body: JSON.stringify({ capture_id: captureId }),
         });
         const data = await resp.json();
+
+        // Bail if capture was stopped while we were waiting for the response
+        if (!state.activeCapture || state.activeCapture.capture_id !== captureId) return;
 
         if (data.error || (data.capture && data.capture.status === 'complete')) {
             // Capture ended
@@ -1902,7 +1921,7 @@ async function pollCaptureStatus() {
                 state.capturePolling = null;
             }
             const statusEl = document.getElementById('pcap-capture-status');
-            if (data.capture) {
+            if (data.capture && data.capture.filename) {
                 const cap = data.capture;
                 statusEl.textContent = `Capture complete: ${cap.filename} (${cap.packet_count} packets, ${formatBytes(cap.file_size_bytes)})`;
                 statusEl.style.color = 'var(--success)';
@@ -1916,6 +1935,10 @@ async function pollCaptureStatus() {
                 }
                 if (cap.source_ip) document.getElementById('pcap-analyze-src').value = cap.source_ip;
                 if (cap.target_ip) document.getElementById('pcap-analyze-dst').value = cap.target_ip;
+            } else {
+                statusEl.textContent = 'Capture ended.';
+                statusEl.style.color = 'var(--success)';
+                await refreshCaptureList();
             }
             state.activeCapture = null;
             document.getElementById('btn-start-capture').style.display = '';
