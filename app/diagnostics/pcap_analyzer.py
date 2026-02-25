@@ -22,6 +22,7 @@ Falls back to tcpdump -r for basic stats if tshark isn't available.
 """
 
 import os
+import platform
 import re
 import subprocess
 import time
@@ -154,10 +155,56 @@ class PcapAnalyzer:
         print(report.to_dict())
     """
 
+    # Common Wireshark install paths on Windows
+    _WIRESHARK_PATHS = [
+        r"C:\Program Files\Wireshark",
+        r"C:\Program Files (x86)\Wireshark",
+    ]
+
     def __init__(self):
-        self._has_tshark = self._check_tool("tshark")
-        self._has_capinfos = self._check_tool("capinfos")
-        self._has_tcpdump = self._check_tool("tcpdump")
+        self._is_windows = platform.system() == "Windows"
+        self._tool_paths = self._discover_tools()
+        self._has_tshark = "tshark" in self._tool_paths
+        self._has_capinfos = "capinfos" in self._tool_paths
+        self._has_tcpdump = "tcpdump" in self._tool_paths
+
+    def _discover_tools(self):
+        """Find available analysis tools, checking Windows install paths."""
+        tools = {}
+
+        if self._is_windows:
+            # Check common Wireshark install directories on Windows
+            for ws_dir in self._WIRESHARK_PATHS:
+                if os.path.isdir(ws_dir):
+                    for tool in ["tshark", "capinfos"]:
+                        exe = os.path.join(ws_dir, f"{tool}.exe")
+                        if os.path.isfile(exe):
+                            tools.setdefault(tool, exe)
+
+            # Also check PATH
+            for tool in ["tshark", "capinfos"]:
+                if tool not in tools and self._check_tool_on_path(f"{tool}.exe"):
+                    tools[tool] = f"{tool}.exe"
+        else:
+            # Linux — tools are on PATH
+            for tool in ["tshark", "capinfos", "tcpdump"]:
+                if self._check_tool_on_path(tool):
+                    tools[tool] = tool
+
+        return tools
+
+    def _check_tool_on_path(self, executable):
+        """Check if a tool is available on the system PATH."""
+        try:
+            which_cmd = "where" if self._is_windows else "which"
+            result = subprocess.run(
+                [which_cmd, executable],
+                capture_output=True, text=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW if self._is_windows else 0,
+            )
+            return result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
 
     def analyze(self, pcap_path, source_ip, target_ip, source_label="", target_label=""):
         """
@@ -197,10 +244,17 @@ class PcapAnalyzer:
             report.analysis_tool = "tcpdump"
             self._analyze_with_tcpdump(pcap_path, source_ip, target_ip, report)
         else:
-            report.summary = (
-                "No analysis tools found. Install tshark (apt-get install tshark) "
-                "or tcpdump (apt-get install tcpdump) to analyze captures."
-            )
+            if self._is_windows:
+                report.summary = (
+                    "No analysis tools found. Install Wireshark from "
+                    "https://www.wireshark.org/download.html — it includes "
+                    "tshark and capinfos for pcap analysis."
+                )
+            else:
+                report.summary = (
+                    "No analysis tools found. Install tshark (apt-get install tshark) "
+                    "or tcpdump (apt-get install tcpdump) to analyze captures."
+                )
             return report
 
         # Generate findings based on the stats
@@ -271,9 +325,11 @@ class PcapAnalyzer:
         """Get total packets and duration from capinfos or tshark."""
         if self._has_capinfos:
             try:
+                capinfos_path = self._tool_paths.get("capinfos", "capinfos")
                 result = subprocess.run(
-                    ["capinfos", "-c", "-u", "-a", "-e", "-M", pcap_path],
+                    [capinfos_path, "-c", "-u", "-a", "-e", "-M", pcap_path],
                     capture_output=True, text=True, timeout=30,
+                    creationflags=subprocess.CREATE_NO_WINDOW if self._is_windows else 0,
                 )
                 if result.returncode == 0:
                     out = result.stdout
@@ -616,12 +672,13 @@ class PcapAnalyzer:
 
     def _analyze_with_tcpdump(self, pcap_path, src_ip, dst_ip, report):
         """Basic analysis using tcpdump -r (fallback when tshark unavailable)."""
-        # Read all packets
+        tcpdump_path = self._tool_paths.get("tcpdump", "tcpdump")
         try:
             result = subprocess.run(
-                ["tcpdump", "-nn", "-r", pcap_path, "-tt",
+                [tcpdump_path, "-nn", "-r", pcap_path, "-tt",
                  f"host {src_ip} and host {dst_ip}"],
                 capture_output=True, text=True, timeout=120,
+                creationflags=subprocess.CREATE_NO_WINDOW if self._is_windows else 0,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             report.summary = "tcpdump read failed or timed out."
@@ -690,7 +747,12 @@ class PcapAnalyzer:
                 "tshark is not installed. Using tcpdump for basic packet/byte counts only. "
                 "Install tshark for retransmission, window size, RTT, and DSCP analysis."
             ),
-            "recommendation": "Install Wireshark/tshark: sudo apt-get install tshark",
+            "recommendation": (
+                "Install Wireshark from https://www.wireshark.org/download.html "
+                "(includes tshark for deep analysis)"
+                if self._is_windows else
+                "Install Wireshark/tshark: sudo apt-get install tshark"
+            ),
         })
 
     # ------------------------------------------------------------------
@@ -1004,10 +1066,12 @@ class PcapAnalyzer:
 
     def _run_tshark(self, pcap_path, extra_args, timeout=60):
         """Run tshark with given arguments and return stdout."""
-        cmd = ["tshark", "-r", pcap_path] + extra_args
+        tshark_path = self._tool_paths.get("tshark", "tshark")
+        cmd = [tshark_path, "-r", pcap_path] + extra_args
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=timeout,
+                creationflags=subprocess.CREATE_NO_WINDOW if self._is_windows else 0,
             )
             if result.returncode == 0:
                 return result.stdout
@@ -1025,18 +1089,6 @@ class PcapAnalyzer:
         if result:
             return len([l for l in result.split("\n") if l.strip()])
         return 0
-
-    @staticmethod
-    def _check_tool(name):
-        """Check if a CLI tool is available."""
-        try:
-            subprocess.run(
-                [name, "--version"],
-                capture_output=True, text=True, timeout=5,
-            )
-            return True
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            return False
 
     @staticmethod
     def _dscp_name(value):

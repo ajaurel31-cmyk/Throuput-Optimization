@@ -29,7 +29,7 @@ from app.config_loader import get_preloaded_devices, load_configs
 main_bp = Blueprint("main", __name__)
 
 ALLOWED_EXTENSIONS = {"txt", "conf", "cfg", "log", "xml", "set"}
-PCAP_EXTENSIONS = {"pcap", "pcapng", "cap"}
+PCAP_EXTENSIONS = {"pcap", "pcapng", "cap", "etl"}
 
 # Singleton capture engine (shared across requests)
 _capture_engine = None
@@ -661,7 +661,7 @@ def start_capture():
     if source_ip and not _is_valid_host(source_ip):
         return jsonify({"error": "Invalid source IP address"}), 400
 
-    interface = data.get("interface", "any").strip()
+    interface = data.get("interface", "").strip()
     duration = min(max(int(data.get("duration", 30)), 5), 120)
     max_packets = min(max(int(data.get("max_packets", 100000)), 1000), 500000)
     port_filter = data.get("port_filter", "").strip()
@@ -817,7 +817,7 @@ def analyze_pcap():
         return jsonify({"error": "Invalid target IP address"}), 400
 
     # Sanitize filename
-    if not re.match(r"^[\w.\-]+\.(pcap|pcapng|cap)$", filename):
+    if not re.match(r"^[\w.\-]+\.(pcap|pcapng|cap|etl)$", filename):
         return jsonify({"error": "Invalid filename"}), 400
 
     engine = _get_capture_engine()
