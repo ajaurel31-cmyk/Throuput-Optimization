@@ -262,7 +262,7 @@ Examples:
                             <span class="pcap-step-title">Capture or Upload</span>
                         </div>
                         <div class="pcap-capture-tabs">
-                            <button class="pcap-tab active" onclick="switchPcapTab('live')">Live Capture (tcpdump)</button>
+                            <button class="pcap-tab active" onclick="switchPcapTab('live')">Live Capture</button>
                             <button class="pcap-tab" onclick="switchPcapTab('upload')">Upload .pcap File</button>
                         </div>
 
@@ -280,7 +280,7 @@ Examples:
                                 <div class="form-group">
                                     <label class="form-label">Interface</label>
                                     <select class="form-select" id="pcap-interface">
-                                        <option value="any">any (all interfaces)</option>
+                                        <option value="">Loading interfaces...</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -316,8 +316,8 @@ Examples:
                         <!-- Upload Form -->
                         <div id="pcap-tab-upload" class="pcap-tab-content">
                             <div class="alert alert-info" style="margin-bottom: 1rem;">
-                                Upload a .pcap, .pcapng, or .cap file captured from tcpdump, Wireshark, or any other tool.
-                                <br>Example: <code>tcpdump -i eth0 -w capture.pcap host 10.2.25.55 and host 10.15.25.50</code>
+                                Upload a .pcap, .pcapng, or .cap file captured from Wireshark, dumpcap, pktmon, or any other tool.
+                                <br>Example: <code>dumpcap -i 1 -w capture.pcapng -f "host 10.2.25.55 and host 10.15.25.50"</code>
                             </div>
                             <div id="pcap-drop-zone" class="upload-zone" style="min-height: 80px;">
                                 <div class="upload-zone-icon">&#x1F4C1;</div>
@@ -325,7 +325,7 @@ Examples:
                                     Drop .pcap file here or click to browse
                                 </div>
                             </div>
-                            <input type="file" id="pcap-file-input" accept=".pcap,.pcapng,.cap" style="display:none">
+                            <input type="file" id="pcap-file-input" accept=".pcap,.pcapng,.cap,.etl" style="display:none">
                             <div id="pcap-upload-status" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);"></div>
                         </div>
                     </div>

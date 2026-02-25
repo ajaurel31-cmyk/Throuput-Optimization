@@ -1740,10 +1740,23 @@ async function checkPcapTools() {
         const statusEl = document.getElementById('pcap-tools-status');
         if (data.tools) {
             const parts = [];
-            parts.push(data.tools.tcpdump ? 'tcpdump \u2705' : 'tcpdump \u274C');
-            parts.push(data.tools.tshark ? 'tshark \u2705' : 'tshark \u274C');
+            if (data.tools.platform === 'windows') {
+                // Windows: show dumpcap/tshark/pktmon
+                if (data.tools.dumpcap !== undefined) parts.push(data.tools.dumpcap ? 'dumpcap \u2705' : 'dumpcap \u274C');
+                if (data.tools.tshark !== undefined) parts.push(data.tools.tshark ? 'tshark \u2705' : 'tshark \u274C');
+                if (data.tools.pktmon !== undefined) parts.push(data.tools.pktmon ? 'pktmon \u2705' : 'pktmon \u274C');
+            } else {
+                // Linux: show tcpdump/tshark
+                if (data.tools.tcpdump !== undefined) parts.push(data.tools.tcpdump ? 'tcpdump \u2705' : 'tcpdump \u274C');
+                if (data.tools.tshark !== undefined) parts.push(data.tools.tshark ? 'tshark \u2705' : 'tshark \u274C');
+            }
+            if (data.tools.capture_method) {
+                parts.push('via ' + data.tools.capture_method);
+            }
             statusEl.textContent = parts.join(' | ');
-            if (!data.tools.tshark) {
+            if (data.tools.capture_method === 'none') {
+                statusEl.style.color = 'var(--critical)';
+            } else if (!data.tools.tshark) {
                 statusEl.style.color = 'var(--warning)';
             }
         }
@@ -1802,7 +1815,9 @@ async function startCapture() {
         }
 
         state.activeCapture = data.capture;
-        statusEl.textContent = `Capturing on ${iface}... (${duration}s max, ${maxPackets.toLocaleString()} pkt limit)`;
+        const capTool = data.capture.capture_tool || 'capture';
+        const ifaceDisplay = iface || 'default interface';
+        statusEl.textContent = `${capTool}: capturing on ${ifaceDisplay}... (${duration}s max, ${maxPackets.toLocaleString()} pkt limit)`;
         statusEl.style.color = 'var(--accent)';
 
         // Toggle buttons
