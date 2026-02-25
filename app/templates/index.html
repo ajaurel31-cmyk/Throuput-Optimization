@@ -242,6 +242,139 @@ Examples:
         <!-- Tab: Diagnostics -->
         <div id="tab-diagnostics" class="tab-content">
 
+            <!-- Packet Capture & Analysis -->
+            <div class="card pcap-section">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Packet Capture &amp; Analysis</div>
+                        <div class="card-subtitle">Capture traffic between ATL &amp; PHX servers, then analyze for the root cause of asymmetric throughput</div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <span id="pcap-tools-status" style="font-size: 0.8rem; color: var(--text-secondary);"></span>
+                    </div>
+                </div>
+
+                <!-- Step 1: Capture or Upload -->
+                <div class="pcap-steps">
+                    <div class="pcap-step">
+                        <div class="pcap-step-header">
+                            <span class="pcap-step-num">1</span>
+                            <span class="pcap-step-title">Capture or Upload</span>
+                        </div>
+                        <div class="pcap-capture-tabs">
+                            <button class="pcap-tab active" onclick="switchPcapTab('live')">Live Capture (tcpdump)</button>
+                            <button class="pcap-tab" onclick="switchPcapTab('upload')">Upload .pcap File</button>
+                        </div>
+
+                        <!-- Live Capture Form -->
+                        <div id="pcap-tab-live" class="pcap-tab-content active">
+                            <div class="pcap-form-grid">
+                                <div class="form-group">
+                                    <label class="form-label">Target IP (remote server)</label>
+                                    <input type="text" class="form-input" id="pcap-target-ip" placeholder="e.g., 10.15.25.50 (PHX server)">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Source IP (local server, optional)</label>
+                                    <input type="text" class="form-input" id="pcap-source-ip" placeholder="e.g., 10.2.25.55 (ATL server)">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Interface</label>
+                                    <select class="form-select" id="pcap-interface">
+                                        <option value="any">any (all interfaces)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Duration</label>
+                                    <select class="form-select" id="pcap-duration">
+                                        <option value="10">10 sec</option>
+                                        <option value="30" selected>30 sec</option>
+                                        <option value="60">60 sec</option>
+                                        <option value="120">120 sec</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Max Packets</label>
+                                    <select class="form-select" id="pcap-max-packets">
+                                        <option value="10000">10,000</option>
+                                        <option value="50000">50,000</option>
+                                        <option value="100000" selected>100,000</option>
+                                        <option value="500000">500,000</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Port Filter (optional)</label>
+                                    <input type="text" class="form-input" id="pcap-port-filter" placeholder="e.g., 445 for SMB">
+                                </div>
+                            </div>
+                            <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                                <button class="btn btn-primary" id="btn-start-capture" onclick="startCapture()">&#x1F4E1; Start Capture</button>
+                                <button class="btn btn-danger" id="btn-stop-capture" onclick="stopCapture()" style="display: none;">&#x23F9; Stop Capture</button>
+                                <span id="pcap-capture-status" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                            </div>
+                        </div>
+
+                        <!-- Upload Form -->
+                        <div id="pcap-tab-upload" class="pcap-tab-content">
+                            <div class="alert alert-info" style="margin-bottom: 1rem;">
+                                Upload a .pcap, .pcapng, or .cap file captured from tcpdump, Wireshark, or any other tool.
+                                <br>Example: <code>tcpdump -i eth0 -w capture.pcap host 10.2.25.55 and host 10.15.25.50</code>
+                            </div>
+                            <div id="pcap-drop-zone" class="upload-zone" style="min-height: 80px;">
+                                <div class="upload-zone-icon">&#x1F4C1;</div>
+                                <div class="upload-zone-text">
+                                    Drop .pcap file here or click to browse
+                                </div>
+                            </div>
+                            <input type="file" id="pcap-file-input" accept=".pcap,.pcapng,.cap" style="display:none">
+                            <div id="pcap-upload-status" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-secondary);"></div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Select file + IPs for analysis -->
+                    <div class="pcap-step">
+                        <div class="pcap-step-header">
+                            <span class="pcap-step-num">2</span>
+                            <span class="pcap-step-title">Analyze Capture</span>
+                        </div>
+                        <div class="pcap-form-grid">
+                            <div class="form-group" style="grid-column: span 2;">
+                                <label class="form-label">Capture File</label>
+                                <select class="form-select" id="pcap-analyze-file">
+                                    <option value="">-- Select a capture file --</option>
+                                </select>
+                                <button class="btn btn-secondary" onclick="refreshCaptureList()" style="margin-top: 0.25rem; font-size: 0.75rem; padding: 0.2rem 0.6rem;">Refresh List</button>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Source IP (slow direction sender)</label>
+                                <input type="text" class="form-input" id="pcap-analyze-src" placeholder="e.g., 10.2.25.55 (ATL)">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Target IP (slow direction receiver)</label>
+                                <input type="text" class="form-input" id="pcap-analyze-dst" placeholder="e.g., 10.15.25.50 (PHX)">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Source Label</label>
+                                <input type="text" class="form-input" id="pcap-analyze-src-label" placeholder="ATL" value="ATL">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Target Label</label>
+                                <input type="text" class="form-input" id="pcap-analyze-dst-label" placeholder="PHX" value="PHX">
+                            </div>
+                        </div>
+                        <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                            <button class="btn btn-primary" onclick="analyzePcap()">&#x1F50E; Analyze Packets</button>
+                            <span id="pcap-analyze-status" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pcap Analysis Results -->
+            <div id="pcap-results"></div>
+
+            <!-- Existing Captures -->
+            <div id="pcap-file-list"></div>
+
             <!-- iPerf3 Bandwidth Test -->
             <div class="card iperf-section">
                 <div class="card-header">

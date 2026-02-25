@@ -1721,6 +1721,601 @@ async function checkStatus() {
 }
 
 // ========================================
+// Packet Capture & Analysis
+// ========================================
+state.activeCapture = null;  // {capture_id, ...}
+state.capturePolling = null; // interval ID
+
+function switchPcapTab(tab) {
+    document.querySelectorAll('.pcap-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.pcap-tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.pcap-tab[onclick*="${tab}"]`).classList.add('active');
+    document.getElementById(`pcap-tab-${tab}`).classList.add('active');
+}
+
+async function checkPcapTools() {
+    try {
+        const resp = await fetch('/api/capture/tools');
+        const data = await resp.json();
+        const statusEl = document.getElementById('pcap-tools-status');
+        if (data.tools) {
+            const parts = [];
+            parts.push(data.tools.tcpdump ? 'tcpdump \u2705' : 'tcpdump \u274C');
+            parts.push(data.tools.tshark ? 'tshark \u2705' : 'tshark \u274C');
+            statusEl.textContent = parts.join(' | ');
+            if (!data.tools.tshark) {
+                statusEl.style.color = 'var(--warning)';
+            }
+        }
+        // Populate interface dropdown
+        if (data.interfaces) {
+            const sel = document.getElementById('pcap-interface');
+            sel.innerHTML = '';
+            for (const iface of data.interfaces) {
+                const opt = document.createElement('option');
+                opt.value = iface.name;
+                opt.textContent = iface.display;
+                sel.appendChild(opt);
+            }
+        }
+    } catch (e) {
+        console.error('Failed to check pcap tools:', e);
+    }
+}
+
+async function startCapture() {
+    const targetIp = document.getElementById('pcap-target-ip').value.trim();
+    if (!targetIp) {
+        alert('Enter the target (remote) IP address');
+        return;
+    }
+
+    const sourceIp = document.getElementById('pcap-source-ip').value.trim();
+    const iface = document.getElementById('pcap-interface').value;
+    const duration = parseInt(document.getElementById('pcap-duration').value) || 30;
+    const maxPackets = parseInt(document.getElementById('pcap-max-packets').value) || 100000;
+    const portFilter = document.getElementById('pcap-port-filter').value.trim();
+    const statusEl = document.getElementById('pcap-capture-status');
+
+    statusEl.textContent = 'Starting capture...';
+    statusEl.style.color = 'var(--text-secondary)';
+
+    try {
+        const resp = await fetch('/api/capture/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target_ip: targetIp,
+                source_ip: sourceIp,
+                interface: iface,
+                duration: duration,
+                max_packets: maxPackets,
+                port_filter: portFilter,
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = `Error: ${data.error}`;
+            statusEl.style.color = 'var(--critical)';
+            return;
+        }
+
+        state.activeCapture = data.capture;
+        statusEl.textContent = `Capturing on ${iface}... (${duration}s max, ${maxPackets.toLocaleString()} pkt limit)`;
+        statusEl.style.color = 'var(--accent)';
+
+        // Toggle buttons
+        document.getElementById('btn-start-capture').style.display = 'none';
+        document.getElementById('btn-stop-capture').style.display = '';
+
+        // Poll for status
+        state.capturePolling = setInterval(() => pollCaptureStatus(), 2000);
+
+    } catch (e) {
+        statusEl.textContent = `Failed: ${e.message}`;
+        statusEl.style.color = 'var(--critical)';
+    }
+}
+
+async function stopCapture() {
+    if (!state.activeCapture) return;
+
+    const statusEl = document.getElementById('pcap-capture-status');
+    statusEl.textContent = 'Stopping capture...';
+
+    if (state.capturePolling) {
+        clearInterval(state.capturePolling);
+        state.capturePolling = null;
+    }
+
+    try {
+        const resp = await fetch('/api/capture/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ capture_id: state.activeCapture.capture_id }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = `Error: ${data.error}`;
+            statusEl.style.color = 'var(--critical)';
+        } else {
+            const cap = data.capture;
+            statusEl.textContent = `Capture complete: ${cap.filename} (${cap.packet_count} packets, ${formatBytes(cap.file_size_bytes)})`;
+            statusEl.style.color = 'var(--success)';
+            // Auto-select in analyze dropdown
+            await refreshCaptureList();
+            const sel = document.getElementById('pcap-analyze-file');
+            if (sel) {
+                for (const opt of sel.options) {
+                    if (opt.value === cap.filename) {
+                        sel.value = cap.filename;
+                        break;
+                    }
+                }
+            }
+            // Pre-fill source/target IPs
+            if (cap.source_ip) document.getElementById('pcap-analyze-src').value = cap.source_ip;
+            if (cap.target_ip) document.getElementById('pcap-analyze-dst').value = cap.target_ip;
+        }
+    } catch (e) {
+        statusEl.textContent = `Stop failed: ${e.message}`;
+        statusEl.style.color = 'var(--critical)';
+    }
+
+    state.activeCapture = null;
+    document.getElementById('btn-start-capture').style.display = '';
+    document.getElementById('btn-stop-capture').style.display = 'none';
+}
+
+async function pollCaptureStatus() {
+    if (!state.activeCapture) return;
+
+    try {
+        const resp = await fetch('/api/capture/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ capture_id: state.activeCapture.capture_id }),
+        });
+        const data = await resp.json();
+
+        if (data.error || (data.capture && data.capture.status === 'complete')) {
+            // Capture ended
+            if (state.capturePolling) {
+                clearInterval(state.capturePolling);
+                state.capturePolling = null;
+            }
+            const statusEl = document.getElementById('pcap-capture-status');
+            if (data.capture) {
+                const cap = data.capture;
+                statusEl.textContent = `Capture complete: ${cap.filename} (${cap.packet_count} packets, ${formatBytes(cap.file_size_bytes)})`;
+                statusEl.style.color = 'var(--success)';
+                await refreshCaptureList();
+                // Auto-select
+                const sel = document.getElementById('pcap-analyze-file');
+                if (sel) {
+                    for (const opt of sel.options) {
+                        if (opt.value === cap.filename) { sel.value = cap.filename; break; }
+                    }
+                }
+                if (cap.source_ip) document.getElementById('pcap-analyze-src').value = cap.source_ip;
+                if (cap.target_ip) document.getElementById('pcap-analyze-dst').value = cap.target_ip;
+            }
+            state.activeCapture = null;
+            document.getElementById('btn-start-capture').style.display = '';
+            document.getElementById('btn-stop-capture').style.display = 'none';
+        } else if (data.capture) {
+            const cap = data.capture;
+            const statusEl = document.getElementById('pcap-capture-status');
+            statusEl.textContent = `Capturing... ${formatBytes(cap.file_size_bytes)} written`;
+        }
+    } catch (e) {
+        // Polling error, ignore
+    }
+}
+
+async function refreshCaptureList() {
+    try {
+        const resp = await fetch('/api/capture/list');
+        const data = await resp.json();
+
+        // Update the analyze dropdown
+        const sel = document.getElementById('pcap-analyze-file');
+        const currentVal = sel.value;
+        sel.innerHTML = '<option value="">-- Select a capture file --</option>';
+        if (data.captures) {
+            for (const cap of data.captures) {
+                const opt = document.createElement('option');
+                opt.value = cap.filename;
+                opt.textContent = `${cap.filename} (${cap.file_size_display}, ${cap.packet_count >= 0 ? cap.packet_count + ' pkts' : '? pkts'})`;
+                sel.appendChild(opt);
+            }
+        }
+        // Restore selection
+        if (currentVal) sel.value = currentVal;
+
+        // Render file list card
+        renderCaptureFileList(data.captures || []);
+    } catch (e) {
+        console.error('Failed to refresh capture list:', e);
+    }
+}
+
+function renderCaptureFileList(captures) {
+    const container = document.getElementById('pcap-file-list');
+    if (!captures || captures.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let html = `<div class="card" style="margin-top: 1rem;">
+        <div class="card-header">
+            <div class="card-title">Saved Captures (${captures.length})</div>
+        </div>`;
+
+    for (const cap of captures) {
+        html += `
+        <div class="device-item">
+            <div class="device-info">
+                <span class="device-vendor-badge vendor-linux" style="font-size: 0.7rem;">PCAP</span>
+                <div>
+                    <div class="device-name">${escapeHtml(cap.filename)}</div>
+                    <div class="device-role">${cap.file_size_display} &middot; ${cap.packet_count >= 0 ? cap.packet_count + ' packets' : '?'} &middot; ${cap.modified}</div>
+                </div>
+            </div>
+            <button class="device-delete" onclick="deleteCaptureFile('${escapeHtml(cap.filename)}')" title="Delete">&#x2715;</button>
+        </div>`;
+    }
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+async function deleteCaptureFile(filename) {
+    if (!confirm(`Delete capture file ${filename}?`)) return;
+    try {
+        await fetch('/api/capture/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: filename }),
+        });
+        refreshCaptureList();
+    } catch (e) {
+        alert(`Delete failed: ${e.message}`);
+    }
+}
+
+// Pcap upload via drag-drop
+function setupPcapDragDrop() {
+    const zone = document.getElementById('pcap-drop-zone');
+    if (!zone) return;
+
+    zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zone.classList.add('dragover');
+    });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+            document.getElementById('pcap-file-input').files = e.dataTransfer.files;
+            uploadPcapFile(e.dataTransfer.files[0]);
+        }
+    });
+    zone.addEventListener('click', () => document.getElementById('pcap-file-input').click());
+
+    document.getElementById('pcap-file-input').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) uploadPcapFile(e.target.files[0]);
+    });
+}
+
+async function uploadPcapFile(file) {
+    const statusEl = document.getElementById('pcap-upload-status');
+    statusEl.textContent = `Uploading ${file.name}...`;
+    statusEl.style.color = 'var(--text-secondary)';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const resp = await fetch('/api/capture/upload', { method: 'POST', body: formData });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = `Error: ${data.error}`;
+            statusEl.style.color = 'var(--critical)';
+            return;
+        }
+
+        statusEl.textContent = `Uploaded: ${data.filename} (${formatBytes(data.file_size_bytes)})`;
+        statusEl.style.color = 'var(--success)';
+
+        // Refresh list and auto-select
+        await refreshCaptureList();
+        const sel = document.getElementById('pcap-analyze-file');
+        sel.value = data.filename;
+    } catch (e) {
+        statusEl.textContent = `Upload failed: ${e.message}`;
+        statusEl.style.color = 'var(--critical)';
+    }
+}
+
+async function analyzePcap() {
+    const filename = document.getElementById('pcap-analyze-file').value;
+    const sourceIp = document.getElementById('pcap-analyze-src').value.trim();
+    const targetIp = document.getElementById('pcap-analyze-dst').value.trim();
+    const sourceLabel = document.getElementById('pcap-analyze-src-label').value.trim() || 'Source';
+    const targetLabel = document.getElementById('pcap-analyze-dst-label').value.trim() || 'Target';
+    const statusEl = document.getElementById('pcap-analyze-status');
+
+    if (!filename) { alert('Select a capture file to analyze'); return; }
+    if (!sourceIp) { alert('Enter the source IP (slow direction sender)'); return; }
+    if (!targetIp) { alert('Enter the target IP (slow direction receiver)'); return; }
+
+    statusEl.textContent = 'Analyzing packets... This may take a minute for large captures.';
+    statusEl.style.color = 'var(--text-secondary)';
+    showLoading('Analyzing packet capture...');
+
+    try {
+        const resp = await fetch('/api/capture/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: filename,
+                source_ip: sourceIp,
+                target_ip: targetIp,
+                source_label: sourceLabel,
+                target_label: targetLabel,
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = `Error: ${data.error}`;
+            statusEl.style.color = 'var(--critical)';
+            return;
+        }
+
+        statusEl.textContent = 'Analysis complete!';
+        statusEl.style.color = 'var(--success)';
+        renderPcapResults(data.report);
+    } catch (e) {
+        statusEl.textContent = `Analysis failed: ${e.message}`;
+        statusEl.style.color = 'var(--critical)';
+    } finally {
+        hideLoading();
+    }
+}
+
+function renderPcapResults(report) {
+    const container = document.getElementById('pcap-results');
+    if (!report) { container.innerHTML = ''; return; }
+
+    const fwd = report.forward;
+    const rev = report.reverse;
+
+    // Determine which direction is slower
+    const fwdSlow = fwd.throughput_mbps < rev.throughput_mbps;
+    const ratio = (fwd.throughput_mbps > 0 && rev.throughput_mbps > 0)
+        ? (Math.max(fwd.throughput_mbps, rev.throughput_mbps) / Math.min(fwd.throughput_mbps, rev.throughput_mbps)).toFixed(1)
+        : '?';
+
+    // Count findings by severity
+    const critCount = report.findings.filter(f => f.severity === 'critical').length;
+    const warnCount = report.findings.filter(f => f.severity === 'warning').length;
+    const infoCount = report.findings.filter(f => f.severity === 'info').length;
+
+    let html = '';
+
+    // Summary stats bar
+    html += `
+    <div class="card" style="margin-top: 1rem;">
+        <div class="card-header">
+            <div>
+                <div class="card-title">Packet Analysis: ${escapeHtml(report.filename)}</div>
+                <div class="card-subtitle">
+                    ${report.total_packets.toLocaleString()} packets | ${report.capture_duration_sec.toFixed(1)}s duration | Tool: ${report.analysis_tool}
+                </div>
+            </div>
+        </div>
+        <div class="summary-box">${escapeHtml(report.summary)}</div>
+    </div>`;
+
+    // Direction comparison cards
+    html += `
+    <div class="stats-bar" style="margin-top: 1rem;">
+        <div class="stat-card">
+            <div class="stat-value ${critCount > 0 ? 'critical' : 'success'}">${critCount}</div>
+            <div class="stat-label">Critical</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value warning">${warnCount}</div>
+            <div class="stat-label">Warnings</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value info">${infoCount}</div>
+            <div class="stat-label">Info</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value critical">${ratio}:1</div>
+            <div class="stat-label">Asymmetry Ratio</div>
+        </div>
+    </div>`;
+
+    // Per-direction throughput comparison
+    html += `
+    <div class="card" style="margin-top: 1rem;">
+        <div class="card-title">Directional Throughput Comparison</div>
+        <div class="pcap-direction-grid">
+            <div class="pcap-direction-card ${fwdSlow ? 'pcap-slow' : 'pcap-fast'}">
+                <div class="pcap-dir-label">${escapeHtml(fwd.label)}</div>
+                <div class="pcap-dir-speed">${fwd.throughput_mbps.toFixed(1)} <small>Mbps</small></div>
+                <div class="pcap-dir-details">
+                    ${fwd.packets.toLocaleString()} packets<br>
+                    ${formatBytes(fwd.bytes_total)} transferred<br>
+                    ${fwd.retransmissions} retransmissions<br>
+                    ${fwd.duplicate_acks} dup ACKs<br>
+                    ${fwd.zero_window} zero-window
+                </div>
+                <div class="pcap-dir-tag">${fwdSlow ? 'SLOW' : 'FAST'}</div>
+            </div>
+            <div class="pcap-direction-card ${!fwdSlow ? 'pcap-slow' : 'pcap-fast'}">
+                <div class="pcap-dir-label">${escapeHtml(rev.label)}</div>
+                <div class="pcap-dir-speed">${rev.throughput_mbps.toFixed(1)} <small>Mbps</small></div>
+                <div class="pcap-dir-details">
+                    ${rev.packets.toLocaleString()} packets<br>
+                    ${formatBytes(rev.bytes_total)} transferred<br>
+                    ${rev.retransmissions} retransmissions<br>
+                    ${rev.duplicate_acks} dup ACKs<br>
+                    ${rev.zero_window} zero-window
+                </div>
+                <div class="pcap-dir-tag">${!fwdSlow ? 'SLOW' : 'FAST'}</div>
+            </div>
+        </div>
+    </div>`;
+
+    // TCP Window Size Comparison
+    if (fwd.window_size_max > 0 || rev.window_size_max > 0) {
+        html += `
+        <div class="card" style="margin-top: 1rem;">
+            <div class="card-title">TCP Window Size Comparison</div>
+            <div class="diag-detail-grid" style="margin-top: 0.75rem;">
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(fwd.label)} Min</span><span class="diag-detail-value">${fwd.window_size_min.toLocaleString()} bytes</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(fwd.label)} Avg</span><span class="diag-detail-value">${fwd.window_size_avg.toLocaleString()} bytes</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(fwd.label)} Max</span><span class="diag-detail-value">${fwd.window_size_max.toLocaleString()} bytes</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(rev.label)} Min</span><span class="diag-detail-value">${rev.window_size_min.toLocaleString()} bytes</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(rev.label)} Avg</span><span class="diag-detail-value">${rev.window_size_avg.toLocaleString()} bytes</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(rev.label)} Max</span><span class="diag-detail-value">${rev.window_size_max.toLocaleString()} bytes</span></div>
+            </div>
+        </div>`;
+    }
+
+    // RTT Comparison
+    if (fwd.rtt_samples > 0 || rev.rtt_samples > 0) {
+        html += `
+        <div class="card" style="margin-top: 1rem;">
+            <div class="card-title">RTT Analysis</div>
+            <div class="diag-detail-grid" style="margin-top: 0.75rem;">
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(fwd.label)} RTT (avg)</span><span class="diag-detail-value">${fwd.rtt_avg_ms.toFixed(1)} ms</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(fwd.label)} RTT (min/max)</span><span class="diag-detail-value">${fwd.rtt_min_ms.toFixed(1)} / ${fwd.rtt_max_ms.toFixed(1)} ms</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(fwd.label)} Samples</span><span class="diag-detail-value">${fwd.rtt_samples}</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(rev.label)} RTT (avg)</span><span class="diag-detail-value">${rev.rtt_avg_ms.toFixed(1)} ms</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(rev.label)} RTT (min/max)</span><span class="diag-detail-value">${rev.rtt_min_ms.toFixed(1)} / ${rev.rtt_max_ms.toFixed(1)} ms</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(rev.label)} Samples</span><span class="diag-detail-value">${rev.rtt_samples}</span></div>
+            </div>
+        </div>`;
+    }
+
+    // TCP Connection Setup (SYN analysis)
+    if (report.connections && report.connections.length > 0) {
+        html += `
+        <div class="card" style="margin-top: 1rem;">
+            <div class="card-title">TCP Connection Setup (SYN Analysis)</div>
+            <div class="pa-table-container" style="margin-top: 0.75rem;">
+                <table class="pa-table">
+                    <thead>
+                        <tr><th>Source</th><th>Destination</th><th>Handshake</th><th>Client MSS</th><th>Server MSS</th><th>WScale (C/S)</th><th>SACK</th></tr>
+                    </thead>
+                    <tbody>`;
+        for (const conn of report.connections) {
+            const wscaleClient = conn.window_scale_client >= 0 ? conn.window_scale_client : 'NONE';
+            const wscaleServer = conn.window_scale_server >= 0 ? conn.window_scale_server : 'NONE';
+            const wscaleClass = (conn.window_scale_client < 0 || conn.window_scale_server < 0) ? 'style="color: var(--critical); font-weight: 600;"' : '';
+            html += `
+                    <tr>
+                        <td class="mono">${escapeHtml(conn.src_ip)}:${conn.src_port}</td>
+                        <td class="mono">${escapeHtml(conn.dst_ip)}:${conn.dst_port}</td>
+                        <td class="mono">${conn.handshake_ms.toFixed(1)} ms</td>
+                        <td class="mono">${conn.mss_client || '?'}</td>
+                        <td class="mono">${conn.mss_server || '?'}</td>
+                        <td class="mono" ${wscaleClass}>${wscaleClient} / ${wscaleServer}</td>
+                        <td class="mono">${conn.sack_permitted ? '\u2705' : '\u274C'}</td>
+                    </tr>`;
+        }
+        html += `</tbody></table></div></div>`;
+    }
+
+    // Per-second throughput timeline
+    if (report.timeline && report.timeline.length > 0) {
+        const maxMbps = Math.max(
+            ...report.timeline.map(t => Math.max(t.forward_mbps, t.reverse_mbps)),
+            1
+        );
+        html += `
+        <div class="card" style="margin-top: 1rem;">
+            <div class="card-title">Per-Second Throughput Timeline</div>
+            <div class="card-subtitle" style="margin-bottom: 0.75rem;">Bars show forward (top, blue) and reverse (bottom, green) throughput each second</div>
+            <div class="pcap-timeline">`;
+
+        for (const t of report.timeline) {
+            const fwdWidth = Math.max((t.forward_mbps / maxMbps) * 100, 0);
+            const revWidth = Math.max((t.reverse_mbps / maxMbps) * 100, 0);
+            html += `
+                <div class="pcap-timeline-row">
+                    <span class="pcap-timeline-sec">${t.second}s</span>
+                    <div class="pcap-timeline-bars">
+                        <div class="pcap-timeline-bar pcap-bar-fwd" style="width: ${fwdWidth}%"
+                             title="${fwd.label}: ${t.forward_mbps} Mbps"></div>
+                        <div class="pcap-timeline-bar pcap-bar-rev" style="width: ${revWidth}%"
+                             title="${rev.label}: ${t.reverse_mbps} Mbps"></div>
+                    </div>
+                    <span class="pcap-timeline-val">${t.forward_mbps} / ${t.reverse_mbps}</span>
+                </div>`;
+        }
+
+        html += `
+                <div class="pcap-timeline-legend">
+                    <span><span class="pcap-legend-dot pcap-bar-fwd"></span> ${escapeHtml(fwd.label)} (Mbps)</span>
+                    <span><span class="pcap-legend-dot pcap-bar-rev"></span> ${escapeHtml(rev.label)} (Mbps)</span>
+                </div>
+            </div>
+        </div>`;
+    }
+
+    // DSCP Analysis
+    if ((fwd.dscp_values && Object.keys(fwd.dscp_values).length > 0) ||
+        (rev.dscp_values && Object.keys(rev.dscp_values).length > 0)) {
+        html += `
+        <div class="card" style="margin-top: 1rem;">
+            <div class="card-title">DSCP / QoS Markings</div>
+            <div class="diag-detail-grid" style="margin-top: 0.75rem;">
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(fwd.label)}</span><span class="diag-detail-value">${Object.entries(fwd.dscp_values || {}).map(([k,v]) => `${k}: ${v}`).join(', ') || 'none'}</span></div>
+                <div class="diag-detail-item"><span class="diag-detail-label">${escapeHtml(rev.label)}</span><span class="diag-detail-value">${Object.entries(rev.dscp_values || {}).map(([k,v]) => `${k}: ${v}`).join(', ') || 'none'}</span></div>
+            </div>
+        </div>`;
+    }
+
+    // Findings
+    if (report.findings && report.findings.length > 0) {
+        const order = { critical: 0, warning: 1, info: 2 };
+        const sorted = [...report.findings].sort((a, b) => (order[a.severity] || 3) - (order[b.severity] || 3));
+
+        html += `
+        <div class="card" style="margin-top: 1rem;">
+            <div class="card-title">Findings (${report.findings.length})</div>`;
+
+        for (const f of sorted) {
+            html += `
+            <div class="finding ${f.severity}">
+                <div class="finding-header">
+                    <span class="finding-severity severity-${f.severity}">${f.severity}</span>
+                    <span class="finding-category">${escapeHtml(f.category)}</span>
+                </div>
+                <div class="finding-title">${escapeHtml(f.title)}</div>
+                <div class="finding-detail">${escapeHtml(f.detail)}</div>
+                <div class="finding-recommendation">${escapeHtml(f.recommendation)}</div>
+            </div>`;
+        }
+
+        html += `</div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+// ========================================
 // Init
 // ========================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -1734,5 +2329,8 @@ document.addEventListener('DOMContentLoaded', () => {
     renderDeviceList();
     renderResults();
     setupDragDrop();
+    setupPcapDragDrop();
     checkStatus();
+    checkPcapTools();
+    refreshCaptureList();
 });

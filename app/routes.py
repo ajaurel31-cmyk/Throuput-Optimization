@@ -5,6 +5,7 @@ Flask routes for the Network Throughput Bottleneck Analyzer.
 import os
 import json
 import re
+import time
 import uuid
 
 from flask import (
@@ -20,7 +21,7 @@ from werkzeug.utils import secure_filename
 from app.parsers import GenericConfigParser
 from app.analyzers.bottleneck_engine import BottleneckAnalyzer
 from app.analyzers.claude_analyzer import ClaudeAnalyzer
-from app.diagnostics import NetworkDiagnostics
+from app.diagnostics import NetworkDiagnostics, PacketCaptureEngine, PcapAnalyzer
 from app.diagnostics.iperf_tester import IperfTester
 from app.connectors import SSHConfigFetcher
 from app.config_loader import get_preloaded_devices, load_configs
@@ -28,6 +29,21 @@ from app.config_loader import get_preloaded_devices, load_configs
 main_bp = Blueprint("main", __name__)
 
 ALLOWED_EXTENSIONS = {"txt", "conf", "cfg", "log", "xml", "set"}
+PCAP_EXTENSIONS = {"pcap", "pcapng", "cap"}
+
+# Singleton capture engine (shared across requests)
+_capture_engine = None
+
+
+def _get_capture_engine():
+    """Get or create the packet capture engine singleton."""
+    global _capture_engine
+    if _capture_engine is None:
+        capture_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "captures"
+        )
+        _capture_engine = PacketCaptureEngine(capture_dir=capture_dir)
+    return _capture_engine
 
 # Valid device roles in the traffic path
 VALID_ROLES = {
@@ -610,6 +626,216 @@ def _run_selected_tests(diag, test_names):
 
     diag._calculate_health(report)
     return report
+
+
+# ========================================
+# Packet Capture & PCAP Analysis Routes
+# ========================================
+
+
+@main_bp.route("/api/capture/tools", methods=["GET"])
+def capture_tools():
+    """Check which capture/analysis tools are available."""
+    engine = _get_capture_engine()
+    tools = engine.check_tools()
+    interfaces = engine.list_interfaces()
+    return jsonify({
+        "status": "ok",
+        "tools": tools,
+        "interfaces": interfaces,
+    })
+
+
+@main_bp.route("/api/capture/start", methods=["POST"])
+def start_capture():
+    """Start a packet capture."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    target_ip = data.get("target_ip", "").strip()
+    if not target_ip or not _is_valid_host(target_ip):
+        return jsonify({"error": "Invalid target IP address"}), 400
+
+    source_ip = data.get("source_ip", "").strip()
+    if source_ip and not _is_valid_host(source_ip):
+        return jsonify({"error": "Invalid source IP address"}), 400
+
+    interface = data.get("interface", "any").strip()
+    duration = min(max(int(data.get("duration", 30)), 5), 120)
+    max_packets = min(max(int(data.get("max_packets", 100000)), 1000), 500000)
+    port_filter = data.get("port_filter", "").strip()
+
+    # Validate port_filter
+    if port_filter and not re.match(r"^\d{1,5}$", port_filter):
+        return jsonify({"error": "Invalid port filter"}), 400
+
+    engine = _get_capture_engine()
+    info = engine.start_capture(
+        target_ip=target_ip,
+        source_ip=source_ip,
+        interface=interface,
+        duration=duration,
+        max_packets=max_packets,
+        port_filter=port_filter,
+    )
+
+    if info.status == "error":
+        return jsonify({"error": info.error}), 400
+
+    return jsonify({"status": "ok", "capture": info.to_dict()})
+
+
+@main_bp.route("/api/capture/stop", methods=["POST"])
+def stop_capture():
+    """Stop a running capture."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    capture_id = data.get("capture_id", "").strip()
+    if not capture_id:
+        return jsonify({"error": "No capture_id provided"}), 400
+
+    # Validate capture_id format
+    if not re.match(r"^cap_\d+_\d+$", capture_id):
+        return jsonify({"error": "Invalid capture_id format"}), 400
+
+    engine = _get_capture_engine()
+    result = engine.stop_capture(capture_id)
+
+    if isinstance(result, dict) and "error" in result:
+        return jsonify(result), 404
+
+    return jsonify({"status": "ok", "capture": result})
+
+
+@main_bp.route("/api/capture/status", methods=["POST"])
+def capture_status():
+    """Check the status of a running capture."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    capture_id = data.get("capture_id", "").strip()
+    if not capture_id or not re.match(r"^cap_\d+_\d+$", capture_id):
+        return jsonify({"error": "Invalid capture_id"}), 400
+
+    engine = _get_capture_engine()
+    result = engine.get_capture_status(capture_id)
+
+    if isinstance(result, dict) and "error" in result:
+        return jsonify(result), 404
+
+    return jsonify({"status": "ok", "capture": result})
+
+
+@main_bp.route("/api/capture/list", methods=["GET"])
+def list_captures():
+    """List all available capture files."""
+    engine = _get_capture_engine()
+    captures = engine.list_captures()
+    return jsonify({"status": "ok", "captures": captures})
+
+
+@main_bp.route("/api/capture/delete", methods=["POST"])
+def delete_capture():
+    """Delete a capture file."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    filename = data.get("filename", "").strip()
+    if not filename:
+        return jsonify({"error": "No filename provided"}), 400
+
+    engine = _get_capture_engine()
+    result = engine.delete_capture(filename)
+
+    if "error" in result:
+        return jsonify(result), 400
+
+    return jsonify(result)
+
+
+@main_bp.route("/api/capture/upload", methods=["POST"])
+def upload_pcap():
+    """Upload a pcap file for analysis."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+
+    # Validate extension
+    ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in PCAP_EXTENSIONS:
+        return jsonify({
+            "error": f"Invalid file type '.{ext}'. Upload .pcap, .pcapng, or .cap files."
+        }), 400
+
+    engine = _get_capture_engine()
+    safe_name = secure_filename(file.filename)
+    save_path = os.path.join(engine.capture_dir, safe_name)
+
+    # Avoid overwriting
+    if os.path.exists(save_path):
+        base, extension = os.path.splitext(safe_name)
+        safe_name = f"{base}_{int(time.time())}{extension}"
+        save_path = os.path.join(engine.capture_dir, safe_name)
+
+    file.save(save_path)
+    file_size = os.path.getsize(save_path)
+
+    return jsonify({
+        "status": "ok",
+        "filename": safe_name,
+        "filepath": save_path,
+        "file_size_bytes": file_size,
+    })
+
+
+@main_bp.route("/api/capture/analyze", methods=["POST"])
+def analyze_pcap():
+    """Analyze a pcap file for directional throughput issues."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    filename = data.get("filename", "").strip()
+    source_ip = data.get("source_ip", "").strip()
+    target_ip = data.get("target_ip", "").strip()
+    source_label = data.get("source_label", "").strip()
+    target_label = data.get("target_label", "").strip()
+
+    if not filename:
+        return jsonify({"error": "No filename provided"}), 400
+    if not source_ip or not _is_valid_host(source_ip):
+        return jsonify({"error": "Invalid source IP address"}), 400
+    if not target_ip or not _is_valid_host(target_ip):
+        return jsonify({"error": "Invalid target IP address"}), 400
+
+    # Sanitize filename
+    if not re.match(r"^[\w.\-]+\.(pcap|pcapng|cap)$", filename):
+        return jsonify({"error": "Invalid filename"}), 400
+
+    engine = _get_capture_engine()
+    pcap_path = os.path.join(engine.capture_dir, filename)
+
+    if not os.path.exists(pcap_path):
+        return jsonify({"error": f"Capture file not found: {filename}"}), 404
+
+    analyzer = PcapAnalyzer()
+    report = analyzer.analyze(
+        pcap_path=pcap_path,
+        source_ip=source_ip,
+        target_ip=target_ip,
+        source_label=source_label,
+        target_label=target_label,
+    )
+
+    return jsonify({"status": "ok", "report": report.to_dict()})
 
 
 @main_bp.route("/api/configs/reload", methods=["POST"])

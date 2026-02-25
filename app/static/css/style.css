@@ -1616,3 +1616,258 @@ body {
         max-width: 95%;
     }
 }
+
+/* ============================================
+   Packet Capture & PCAP Analysis
+   ============================================ */
+
+.pcap-section {
+    border-left: 3px solid var(--accent);
+}
+
+.pcap-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+.pcap-step {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    background: var(--bg-primary);
+}
+
+.pcap-step-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.pcap-step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.pcap-step-title {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.pcap-capture-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--border);
+}
+
+.pcap-tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-family: var(--font-sans);
+}
+
+.pcap-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+}
+
+.pcap-tab:hover:not(.active) {
+    color: var(--text-primary);
+}
+
+.pcap-tab-content {
+    display: none;
+}
+
+.pcap-tab-content.active {
+    display: block;
+}
+
+.pcap-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+/* Direction comparison cards */
+.pcap-direction-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.pcap-direction-card {
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    text-align: center;
+    position: relative;
+    transition: border-color 0.2s;
+}
+
+.pcap-direction-card.pcap-slow {
+    border-color: var(--critical);
+    background: var(--critical-bg);
+}
+
+.pcap-direction-card.pcap-fast {
+    border-color: var(--success);
+    background: var(--success-bg);
+}
+
+.pcap-dir-label {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.pcap-dir-speed {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    line-height: 1.2;
+}
+
+.pcap-slow .pcap-dir-speed {
+    color: var(--critical);
+}
+
+.pcap-fast .pcap-dir-speed {
+    color: var(--success);
+}
+
+.pcap-dir-speed small {
+    font-size: 0.9rem;
+    font-weight: 400;
+    opacity: 0.7;
+}
+
+.pcap-dir-details {
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    font-family: var(--font-mono);
+}
+
+.pcap-dir-tag {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+}
+
+.pcap-slow .pcap-dir-tag {
+    background: var(--critical);
+    color: white;
+}
+
+.pcap-fast .pcap-dir-tag {
+    background: var(--success);
+    color: white;
+}
+
+/* Per-second throughput timeline */
+.pcap-timeline {
+    margin-top: 0.5rem;
+}
+
+.pcap-timeline-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2px 0;
+}
+
+.pcap-timeline-sec {
+    width: 35px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: right;
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+}
+
+.pcap-timeline-bars {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.pcap-timeline-bar {
+    height: 10px;
+    border-radius: 2px;
+    min-width: 1px;
+    transition: width 0.3s ease;
+}
+
+.pcap-bar-fwd {
+    background: var(--accent);
+}
+
+.pcap-bar-rev {
+    background: var(--success);
+}
+
+.pcap-timeline-val {
+    width: 100px;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.pcap-timeline-legend {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.pcap-legend-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 0.3rem;
+    vertical-align: middle;
+}
+
+@media (max-width: 768px) {
+    .pcap-direction-grid {
+        grid-template-columns: 1fr;
+    }
+    .pcap-form-grid {
+        grid-template-columns: 1fr;
+    }
+}
