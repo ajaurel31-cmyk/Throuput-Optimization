@@ -382,6 +382,55 @@ Examples:
                 </div>
             </div>
 
+            <!-- Path Analysis (MTR-style) -->
+            <div class="card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Path Analysis (MTR-style)</div>
+                        <div class="card-subtitle">Trace each hop and measure per-hop packet loss &amp; latency to pinpoint where drops occur</div>
+                    </div>
+                </div>
+                <div class="alert alert-info" style="margin-bottom: 1rem;">
+                    This test sends multiple probes to every hop in the path. It identifies exactly which router or link is dropping packets or adding latency.
+                    Uses <code>mtr</code> if available, otherwise falls back to traceroute + per-hop ping.
+                </div>
+                <div class="path-analysis-form-grid">
+                    <div class="form-group" style="flex: 2;">
+                        <label class="form-label">Target Host (IP or hostname)</label>
+                        <input type="text" class="form-input" id="pa-target" placeholder="e.g., 10.15.25.50">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">Source IP (optional)</label>
+                        <input type="text" class="form-input" id="pa-source" placeholder="e.g., 10.2.25.55 (bind to interface)">
+                    </div>
+                    <div class="form-group" style="flex: 0.5;">
+                        <label class="form-label">Probes per hop</label>
+                        <select class="form-select" id="pa-rounds">
+                            <option value="5">5 probes</option>
+                            <option value="10" selected>10 probes</option>
+                            <option value="20">20 probes</option>
+                            <option value="30">30 probes</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 0.5;">
+                        <label class="form-label">Max Hops</label>
+                        <select class="form-select" id="pa-max-hops">
+                            <option value="15">15</option>
+                            <option value="20" selected>20</option>
+                            <option value="25">25</option>
+                            <option value="30">30</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top: 1rem; display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn btn-primary" onclick="runPathAnalysis()">&#x1F50E; Run Path Analysis</button>
+                    <span id="pa-status" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+                </div>
+            </div>
+
+            <!-- Path Analysis Results -->
+            <div id="pa-results"></div>
+
             <!-- Diagnostics Results -->
             <div id="diag-results"></div>
         </div>

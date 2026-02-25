@@ -366,6 +366,31 @@ def run_traceroute():
     return jsonify({"status": "ok", "result": result.to_dict()})
 
 
+@main_bp.route("/api/diagnostics/path-analysis", methods=["POST"])
+def run_path_analysis():
+    """Run MTR-style path analysis to identify per-hop packet loss and latency."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    target = data.get("target", "").strip()
+    if not target or not _is_valid_host(target):
+        return jsonify({"error": "Invalid target"}), 400
+
+    source_ip = data.get("source_ip", "").strip() or None
+    if source_ip and not _is_valid_host(source_ip):
+        return jsonify({"error": "Invalid source IP"}), 400
+
+    rounds = min(max(int(data.get("rounds", 10)), 3), 50)
+    max_hops = min(max(int(data.get("max_hops", 20)), 5), 30)
+
+    diag = NetworkDiagnostics(target)
+    result = diag.test_path_analysis(
+        rounds=rounds, max_hops=max_hops, source_ip=source_ip,
+    )
+    return jsonify({"status": "ok", "result": result.to_dict()})
+
+
 @main_bp.route("/api/diagnostics/ports", methods=["POST"])
 def run_port_scan():
     """Run TCP port connectivity test."""
@@ -567,6 +592,7 @@ def _run_selected_tests(diag, test_names):
         "mtu": diag.test_mtu_path,
         "ports": diag.test_tcp_ports,
         "bdp": diag.test_bdp,
+        "path_analysis": diag.test_path_analysis,
     }
 
     for name in test_names:

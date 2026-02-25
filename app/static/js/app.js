@@ -1034,11 +1034,293 @@ function renderTestDetails(result) {
                 </div>`;
             }
             break;
+
+        case 'Path Analysis':
+            if (d.hops && d.hops.length > 0) {
+                html += `<div class="diag-detail-grid">
+                    <div class="diag-detail-item"><span class="diag-detail-label">Total Hops</span><span class="diag-detail-value">${d.total_hops}</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Responding</span><span class="diag-detail-value">${d.responding_hops}</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Path Health</span><span class="diag-detail-value">${d.path_health}</span></div>
+                    <div class="diag-detail-item"><span class="diag-detail-label">Probes/Hop</span><span class="diag-detail-value">${d.rounds}</span></div>
+                </div>`;
+                if (d.worst_hop) {
+                    html += `<div class="alert alert-warning" style="margin: 0.75rem 0;">
+                        <strong>Worst hop:</strong> Hop ${d.worst_hop.hop} (${escapeHtml(d.worst_hop.ip)}) &mdash; ${d.worst_hop.loss_percent}% loss
+                    </div>`;
+                }
+                html += `<div class="pa-table-container"><table class="pa-table">
+                    <thead><tr><th>Hop</th><th>IP</th><th>Loss</th><th>Avg RTT</th><th>Visual</th></tr></thead><tbody>`;
+                for (const h of d.hops) {
+                    const lossBarWidth = Math.max(h.loss_percent, 0);
+                    const lossBarClass = h.loss_percent > 20 ? 'pa-loss-high' : h.loss_percent > 0 ? 'pa-loss-medium' : 'pa-loss-none';
+                    html += `<tr class="${h.loss_percent > 20 ? 'pa-row-critical' : h.loss_percent > 0 ? 'pa-row-warning' : ''}">
+                        <td>${h.hop}</td>
+                        <td class="mono">${escapeHtml(h.ip)}</td>
+                        <td class="mono">${h.ip === '*' ? '*' : h.loss_percent.toFixed(1) + '%'}</td>
+                        <td class="mono">${h.avg_rtt > 0 ? h.avg_rtt.toFixed(1) : '*'}</td>
+                        <td><div class="pa-loss-bar-container"><div class="pa-loss-bar ${lossBarClass}" style="width:${h.ip === '*' ? 100 : lossBarWidth}%"></div></div></td>
+                    </tr>`;
+                }
+                html += `</tbody></table></div>`;
+            }
+            break;
     }
 
     return html;
 }
 
+// ========================================
+// Path Analysis (MTR-style)
+// ========================================
+async function runPathAnalysis() {
+    const target = document.getElementById('pa-target').value.trim();
+    if (!target) {
+        alert('Enter a target host (IP address or hostname)');
+        return;
+    }
+
+    const sourceIp = document.getElementById('pa-source').value.trim();
+    const rounds = parseInt(document.getElementById('pa-rounds').value) || 10;
+    const maxHops = parseInt(document.getElementById('pa-max-hops').value) || 20;
+    const statusEl = document.getElementById('pa-status');
+
+    const estimatedTime = Math.round((rounds * maxHops * 0.5) + 15);
+    statusEl.textContent = 'Probing path...';
+    statusEl.style.color = 'var(--text-secondary)';
+    showLoading(`Running path analysis to ${target}... This may take up to ${estimatedTime} seconds.`);
+
+    try {
+        const resp = await fetch('/api/diagnostics/path-analysis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target: target,
+                source_ip: sourceIp || undefined,
+                rounds: rounds,
+                max_hops: maxHops,
+            }),
+        });
+        const data = await resp.json();
+
+        if (data.error) {
+            statusEl.textContent = `Error: ${data.error}`;
+            statusEl.style.color = 'var(--critical)';
+            alert(`Path Analysis Error: ${data.error}`);
+            return;
+        }
+
+        statusEl.textContent = 'Analysis complete!';
+        statusEl.style.color = 'var(--success)';
+        renderPathAnalysis(data.result);
+    } catch (e) {
+        statusEl.textContent = `Failed: ${e.message}`;
+        statusEl.style.color = 'var(--critical)';
+        alert(`Path analysis failed: ${e.message}`);
+    } finally {
+        hideLoading();
+    }
+}
+
+function renderPathAnalysis(result) {
+    const container = document.getElementById('pa-results');
+    if (!result) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const d = result.details || {};
+    const hops = d.hops || [];
+    const problemHops = d.problem_hops || [];
+    const worstHop = d.worst_hop;
+    const pathHealth = d.path_health || 'unknown';
+
+    const healthClass = {
+        healthy: 'health-healthy',
+        degraded: 'health-degraded',
+        impaired: 'health-impaired',
+        critical: 'health-critical',
+    }[pathHealth] || 'health-unknown';
+
+    const statusIcon = {
+        pass: '&#x2705;',
+        warning: '&#x26A0;',
+        fail: '&#x274C;',
+        error: '&#x26D4;',
+    }[result.status] || '&#x2753;';
+
+    let html = '';
+
+    // Header card with summary
+    html += `
+    <div class="card">
+        <div class="card-header">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span style="font-size: 1.25rem;">${statusIcon}</span>
+                <div>
+                    <div class="card-title">Path Analysis: ${escapeHtml(d.target || '')}</div>
+                    <div class="card-subtitle">
+                        ${d.total_hops || 0} hops discovered, ${d.responding_hops || 0} responding
+                        ${d.source_ip ? ' | Source: ' + escapeHtml(d.source_ip) : ''}
+                        ${d.tool ? ' | Tool: ' + d.tool : ''}
+                        | ${d.rounds || 0} probes/hop
+                    </div>
+                </div>
+            </div>
+            <span class="health-badge ${healthClass}">${pathHealth}</span>
+        </div>
+        <div class="summary-box">${escapeHtml(result.summary)}</div>
+    </div>`;
+
+    // Worst hop callout
+    if (worstHop) {
+        html += `
+        <div class="alert alert-warning">
+            <strong>Worst hop:</strong> Hop ${worstHop.hop} (${escapeHtml(worstHop.ip)}) &mdash; ${worstHop.loss_percent}% packet loss
+        </div>`;
+    }
+
+    // Per-hop table
+    if (hops.length > 0) {
+        html += `
+        <div class="card">
+            <div class="card-title">Per-Hop Results</div>
+            <div class="pa-table-container">
+                <table class="pa-table">
+                    <thead>
+                        <tr>
+                            <th>Hop</th>
+                            <th>IP Address</th>
+                            <th>Hostname</th>
+                            <th>Loss</th>
+                            <th>Sent</th>
+                            <th>Recv</th>
+                            <th>Avg (ms)</th>
+                            <th>Min (ms)</th>
+                            <th>Max (ms)</th>
+                            <th>StDev</th>
+                            <th>Delta</th>
+                            <th>Loss Visual</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+        for (const h of hops) {
+            const isProblem = problemHops.some(p => p.hop === h.hop);
+            const rowClass = h.status === 'timeout' ? 'pa-row-timeout' :
+                             h.loss_percent > 20 ? 'pa-row-critical' :
+                             h.loss_percent > 0 ? 'pa-row-warning' :
+                             isProblem ? 'pa-row-warning' : '';
+
+            const lossBarWidth = Math.max(h.loss_percent, 0);
+            const lossBarClass = h.loss_percent > 20 ? 'pa-loss-high' :
+                                 h.loss_percent > 0 ? 'pa-loss-medium' : 'pa-loss-none';
+
+            const delta = h.latency_delta !== undefined ? h.latency_delta : '';
+            const deltaClass = delta > 50 ? 'pa-delta-high' : delta > 20 ? 'pa-delta-medium' : '';
+
+            html += `
+                <tr class="${rowClass}">
+                    <td class="mono">${h.hop}</td>
+                    <td class="mono">${escapeHtml(h.ip)}</td>
+                    <td class="pa-hostname">${h.hostname && h.hostname !== h.ip ? escapeHtml(h.hostname) : ''}</td>
+                    <td class="mono ${h.loss_percent > 0 ? 'pa-loss-text' : ''}">${h.ip === '*' ? '*' : h.loss_percent.toFixed(1) + '%'}</td>
+                    <td class="mono">${h.ip === '*' ? '' : h.sent}</td>
+                    <td class="mono">${h.ip === '*' ? '' : h.received}</td>
+                    <td class="mono">${h.avg_rtt > 0 ? h.avg_rtt.toFixed(1) : '*'}</td>
+                    <td class="mono">${h.min_rtt > 0 ? h.min_rtt.toFixed(1) : '*'}</td>
+                    <td class="mono">${h.max_rtt > 0 ? h.max_rtt.toFixed(1) : '*'}</td>
+                    <td class="mono">${h.stdev > 0 ? h.stdev.toFixed(1) : '*'}</td>
+                    <td class="mono ${deltaClass}">${delta !== '' && delta > 0 ? '+' + delta.toFixed(0) : delta === 0 ? '0' : ''}</td>
+                    <td>
+                        <div class="pa-loss-bar-container">
+                            <div class="pa-loss-bar ${lossBarClass}" style="width: ${Math.max(lossBarWidth, h.ip === '*' ? 100 : 0)}%"></div>
+                        </div>
+                    </td>
+                </tr>`;
+        }
+
+        html += `</tbody></table></div></div>`;
+    }
+
+    // Latency progression chart (text-based visualization)
+    const respondingHops = hops.filter(h => h.ip !== '*' && h.avg_rtt > 0);
+    if (respondingHops.length > 0) {
+        const maxRtt = Math.max(...respondingHops.map(h => h.avg_rtt), 1);
+
+        html += `
+        <div class="card">
+            <div class="card-title">Latency Progression</div>
+            <div class="card-subtitle" style="margin-bottom: 1rem;">RTT (ms) per hop — look for sharp jumps indicating WAN segments or congestion</div>
+            <div class="pa-latency-chart">`;
+
+        for (const h of hops) {
+            if (h.ip === '*') {
+                html += `
+                <div class="pa-latency-row">
+                    <span class="pa-latency-hop">Hop ${h.hop}</span>
+                    <span class="pa-latency-ip">* * *</span>
+                    <div class="pa-latency-bar-outer">
+                        <div class="pa-latency-bar pa-latency-timeout" style="width: 100%"></div>
+                    </div>
+                    <span class="pa-latency-value">timeout</span>
+                </div>`;
+                continue;
+            }
+            const barWidth = h.avg_rtt > 0 ? Math.max((h.avg_rtt / maxRtt) * 100, 2) : 0;
+            const barClass = h.avg_rtt > 150 ? 'pa-latency-high' :
+                             h.avg_rtt > 50 ? 'pa-latency-medium' : 'pa-latency-low';
+            const lossIndicator = h.loss_percent > 0 ? ` | ${h.loss_percent}% loss` : '';
+
+            html += `
+            <div class="pa-latency-row">
+                <span class="pa-latency-hop">Hop ${h.hop}</span>
+                <span class="pa-latency-ip">${escapeHtml(h.ip)}</span>
+                <div class="pa-latency-bar-outer">
+                    <div class="pa-latency-bar ${barClass}" style="width: ${barWidth}%"></div>
+                </div>
+                <span class="pa-latency-value">${h.avg_rtt.toFixed(1)}ms${lossIndicator}</span>
+            </div>`;
+        }
+
+        html += `</div></div>`;
+    }
+
+    // Problem hops detail
+    if (problemHops.length > 0) {
+        html += `
+        <div class="card">
+            <div class="card-title">Problem Hops Identified</div>`;
+
+        for (const ph of problemHops) {
+            html += `
+            <div class="finding warning">
+                <div class="finding-header">
+                    <span class="finding-severity severity-warning">HOP ${ph.hop}</span>
+                    <span class="finding-category">${escapeHtml(ph.ip)}</span>
+                </div>
+                <div class="finding-detail">${ph.issues.map(i => escapeHtml(i)).join('<br>')}</div>
+            </div>`;
+        }
+
+        html += `</div>`;
+    }
+
+    // Recommendations
+    if (result.recommendations && result.recommendations.length > 0) {
+        html += `
+        <div class="card">
+            <div class="card-title">Recommendations</div>
+            <div class="diag-recommendations" style="border: none; padding: 0;">`;
+        for (const rec of result.recommendations) {
+            html += `<div class="diag-rec-item">${escapeHtml(rec)}</div>`;
+        }
+        html += `</div></div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+// Also add Path Analysis rendering to the generic diagnostic results renderer
 function toggleDiagDetail(header) {
     const detail = header.nextElementSibling;
     const icon = header.querySelector('.diag-expand-icon');

@@ -1402,6 +1402,202 @@ body {
     40% { transform: scale(1); opacity: 1; }
 }
 
+/* ============================================
+   Path Analysis (MTR-style)
+   ============================================ */
+
+.path-analysis-form-grid {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+    .path-analysis-form-grid {
+        flex-direction: column;
+    }
+}
+
+/* Path Analysis Table */
+.pa-table-container {
+    overflow-x: auto;
+    margin: 1rem 0;
+}
+
+.pa-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.pa-table th {
+    text-align: left;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.pa-table td {
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+    color: var(--text-secondary);
+}
+
+.pa-table td.mono {
+    font-family: var(--font-mono);
+}
+
+.pa-table .pa-hostname {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Row highlighting */
+.pa-row-critical {
+    background: var(--critical-bg) !important;
+}
+
+.pa-row-warning {
+    background: var(--warning-bg) !important;
+}
+
+.pa-row-timeout {
+    background: rgba(100, 116, 139, 0.1);
+    color: var(--text-muted) !important;
+}
+
+.pa-row-timeout td {
+    color: var(--text-muted) !important;
+}
+
+/* Loss text coloring */
+.pa-loss-text {
+    color: var(--critical) !important;
+    font-weight: 600;
+}
+
+/* Loss bar */
+.pa-loss-bar-container {
+    width: 100%;
+    min-width: 80px;
+    height: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.pa-loss-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.3s;
+}
+
+.pa-loss-none {
+    background: var(--success);
+    width: 2px !important;
+}
+
+.pa-loss-medium {
+    background: var(--warning);
+}
+
+.pa-loss-high {
+    background: var(--critical);
+}
+
+/* Latency delta coloring */
+.pa-delta-high {
+    color: var(--critical) !important;
+    font-weight: 700;
+}
+
+.pa-delta-medium {
+    color: var(--warning) !important;
+    font-weight: 600;
+}
+
+/* Latency Progression Chart */
+.pa-latency-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.pa-latency-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+}
+
+.pa-latency-hop {
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    min-width: 50px;
+    text-align: right;
+}
+
+.pa-latency-ip {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    min-width: 130px;
+}
+
+.pa-latency-bar-outer {
+    flex: 1;
+    height: 14px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+    min-width: 100px;
+}
+
+.pa-latency-bar {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+.pa-latency-low {
+    background: linear-gradient(90deg, var(--success), #34d399);
+}
+
+.pa-latency-medium {
+    background: linear-gradient(90deg, var(--warning), #fbbf24);
+}
+
+.pa-latency-high {
+    background: linear-gradient(90deg, var(--critical), #f87171);
+}
+
+.pa-latency-timeout {
+    background: repeating-linear-gradient(
+        45deg,
+        rgba(100, 116, 139, 0.2),
+        rgba(100, 116, 139, 0.2) 4px,
+        transparent 4px,
+        transparent 8px
+    );
+}
+
+.pa-latency-value {
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    min-width: 110px;
+    text-align: right;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .main-container {

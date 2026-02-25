@@ -553,6 +553,435 @@ class NetworkDiagnostics:
         )
 
     # ------------------------------------------------------------------
+    # Path Analysis (MTR-style per-hop loss & latency)
+    # ------------------------------------------------------------------
+
+    def test_path_analysis(self, rounds=10, max_hops=20, source_ip=None):
+        """
+        MTR-style path analysis: discover hops via traceroute, then send
+        multiple pings to EACH hop to measure per-hop packet loss, latency
+        variation, and identify exactly where drops or throttling occur.
+
+        Args:
+            rounds:    Number of probes per hop (more = better accuracy)
+            max_hops:  Maximum TTL for path discovery
+            source_ip: Optional source IP / interface to bind to (e.g. 10.2.25.55)
+        """
+        start = time.time()
+
+        # -- Step 1: Try mtr first (best tool for this), fall back to manual --
+        mtr_result = self._try_mtr(rounds, max_hops, source_ip)
+        if mtr_result is not None:
+            mtr_result.duration_ms = (time.time() - start) * 1000
+            return mtr_result
+
+        # -- Step 2: Manual approach — traceroute then per-hop ping --
+        # 2a. Discover the path
+        hops = self._discover_hops(max_hops, source_ip)
+        if not hops:
+            elapsed = (time.time() - start) * 1000
+            return DiagnosticResult(
+                test_name="Path Analysis",
+                status="fail",
+                summary="Could not discover any hops to target",
+                details={"target": self.target, "source_ip": source_ip},
+                duration_ms=elapsed,
+                recommendations=[
+                    "All traceroute probes timed out. ICMP/UDP may be blocked.",
+                    "Try running from a different source interface or without source binding.",
+                ],
+            )
+
+        # 2b. Probe each discovered hop
+        hop_results = []
+        for hop in hops:
+            hop_ip = hop["ip"]
+            if hop_ip == "*":
+                hop_results.append({
+                    "hop": hop["hop"],
+                    "ip": "*",
+                    "hostname": "*",
+                    "loss_percent": 100.0,
+                    "sent": rounds,
+                    "received": 0,
+                    "avg_rtt": 0,
+                    "min_rtt": 0,
+                    "max_rtt": 0,
+                    "jitter": 0,
+                    "stdev": 0,
+                    "rtts": [],
+                    "status": "timeout",
+                })
+                continue
+
+            probe = self._probe_hop(hop_ip, count=rounds, source_ip=source_ip)
+            probe["hop"] = hop["hop"]
+            hop_results.append(probe)
+
+        # -- Step 3: Analyze results --
+        analysis = self._analyze_path(hop_results)
+        elapsed = (time.time() - start) * 1000
+
+        return DiagnosticResult(
+            test_name="Path Analysis",
+            status=analysis["status"],
+            summary=analysis["summary"],
+            details={
+                "target": self.target,
+                "source_ip": source_ip,
+                "rounds": rounds,
+                "max_hops": max_hops,
+                "total_hops": len(hop_results),
+                "responding_hops": len([h for h in hop_results if h["ip"] != "*"]),
+                "hops": hop_results,
+                "problem_hops": analysis["problem_hops"],
+                "worst_hop": analysis.get("worst_hop"),
+                "path_health": analysis["path_health"],
+            },
+            duration_ms=elapsed,
+            recommendations=analysis["recommendations"],
+        )
+
+    def _try_mtr(self, rounds, max_hops, source_ip):
+        """Try to use mtr for path analysis (preferred tool)."""
+        try:
+            cmd = [
+                "mtr", "--report", "--report-cycles", str(rounds),
+                "--max-ttl", str(max_hops), "--no-dns", "--json",
+                self.target,
+            ]
+            if source_ip:
+                cmd.extend(["--address", source_ip])
+
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=rounds * max_hops + 30,
+            )
+
+            if proc.returncode != 0:
+                return None
+
+            import json as _json
+            data = _json.loads(proc.stdout)
+            report = data.get("report", {})
+            mtr_hops = report.get("hubs", [])
+
+            if not mtr_hops:
+                return None
+
+            hop_results = []
+            for h in mtr_hops:
+                hop_results.append({
+                    "hop": h.get("count", 0),
+                    "ip": h.get("host", "*"),
+                    "hostname": h.get("host", "*"),
+                    "loss_percent": h.get("Loss%", 100.0),
+                    "sent": rounds,
+                    "received": round(rounds * (1 - h.get("Loss%", 100) / 100)),
+                    "avg_rtt": h.get("Avg", 0),
+                    "min_rtt": h.get("Best", 0),
+                    "max_rtt": h.get("Wrst", 0),
+                    "jitter": h.get("Wrst", 0) - h.get("Best", 0),
+                    "stdev": h.get("StDev", 0),
+                    "rtts": [],
+                    "status": "ok" if h.get("Loss%", 100) == 0 else
+                              "loss" if h.get("Loss%", 100) < 100 else "timeout",
+                })
+
+            analysis = self._analyze_path(hop_results)
+
+            return DiagnosticResult(
+                test_name="Path Analysis",
+                status=analysis["status"],
+                summary=analysis["summary"],
+                details={
+                    "target": self.target,
+                    "source_ip": source_ip,
+                    "tool": "mtr",
+                    "rounds": rounds,
+                    "max_hops": max_hops,
+                    "total_hops": len(hop_results),
+                    "responding_hops": len([h for h in hop_results if h["ip"] != "*"]),
+                    "hops": hop_results,
+                    "problem_hops": analysis["problem_hops"],
+                    "worst_hop": analysis.get("worst_hop"),
+                    "path_health": analysis["path_health"],
+                },
+                recommendations=analysis["recommendations"],
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            return None
+
+    def _discover_hops(self, max_hops, source_ip):
+        """Run traceroute to discover path hops."""
+        try:
+            if self.is_linux:
+                cmd = ["traceroute", "-m", str(max_hops), "-w", "2", "-n",
+                       "-q", "1", self.target]
+                if source_ip:
+                    cmd.extend(["-s", source_ip])
+            else:
+                cmd = ["tracert", "-h", str(max_hops), "-w", "2000", "-d",
+                       self.target]
+
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=max_hops * 3 + 15,
+            )
+            return self._parse_traceroute_output(proc.stdout + proc.stderr)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return []
+
+    def _probe_hop(self, hop_ip, count=10, source_ip=None):
+        """Send multiple pings to a single hop and collect statistics."""
+        try:
+            if self.is_linux:
+                cmd = ["ping", "-c", str(count), "-W", "2", "-i", "0.3", hop_ip]
+                if source_ip:
+                    cmd.extend(["-I", source_ip])
+            else:
+                cmd = ["ping", "-n", str(count), "-w", str(count * 1000), hop_ip]
+
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=count * 3 + 10,
+            )
+            output = proc.stdout + proc.stderr
+            parsed = self._parse_ping_output(output)
+
+            # Extract individual RTTs from ping output for detailed analysis
+            rtts = [float(m) for m in re.findall(
+                r"time[=<]([\d.]+)\s*ms", output, re.IGNORECASE
+            )]
+
+            loss = parsed.get("packet_loss", 100.0)
+            avg_rtt = parsed.get("avg_rtt", 0)
+            min_rtt = parsed.get("min_rtt", 0)
+            max_rtt = parsed.get("max_rtt", 0)
+            jitter = parsed.get("jitter", 0)
+
+            # Compute stdev from individual RTTs
+            stdev = 0
+            if len(rtts) > 1:
+                mean = sum(rtts) / len(rtts)
+                stdev = (sum((x - mean) ** 2 for x in rtts) / len(rtts)) ** 0.5
+
+            if loss == 100:
+                status = "timeout"
+            elif loss > 0:
+                status = "loss"
+            elif avg_rtt > 150:
+                status = "high_latency"
+            else:
+                status = "ok"
+
+            return {
+                "ip": hop_ip,
+                "hostname": self._reverse_dns(hop_ip),
+                "loss_percent": loss,
+                "sent": parsed.get("transmitted", count),
+                "received": parsed.get("received", 0),
+                "avg_rtt": round(avg_rtt, 2),
+                "min_rtt": round(min_rtt, 2),
+                "max_rtt": round(max_rtt, 2),
+                "jitter": round(jitter, 2),
+                "stdev": round(stdev, 2),
+                "rtts": [round(r, 2) for r in rtts],
+                "status": status,
+            }
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return {
+                "ip": hop_ip,
+                "hostname": hop_ip,
+                "loss_percent": 100.0,
+                "sent": count,
+                "received": 0,
+                "avg_rtt": 0,
+                "min_rtt": 0,
+                "max_rtt": 0,
+                "jitter": 0,
+                "stdev": 0,
+                "rtts": [],
+                "status": "timeout",
+            }
+
+    def _reverse_dns(self, ip):
+        """Attempt reverse DNS lookup, return IP on failure."""
+        try:
+            hostname = socket.gethostbyaddr(ip)[0]
+            return hostname
+        except (socket.herror, socket.gaierror, OSError):
+            return ip
+
+    def _analyze_path(self, hop_results):
+        """Analyze per-hop results to identify problem points."""
+        problem_hops = []
+        recs = []
+        worst_hop = None
+        worst_loss = 0
+        prev_rtt = 0
+        status = "pass"
+
+        responding = [h for h in hop_results if h["ip"] != "*"]
+
+        if not responding:
+            return {
+                "status": "fail",
+                "summary": "No hops responded to probes",
+                "problem_hops": [],
+                "worst_hop": None,
+                "path_health": "critical",
+                "recommendations": [
+                    "All hops timed out. ICMP may be completely blocked.",
+                    "Check firewall rules along the entire path.",
+                ],
+            }
+
+        for h in hop_results:
+            if h["ip"] == "*":
+                continue
+
+            issues = []
+
+            # Check for packet loss at this hop
+            if h["loss_percent"] > 0 and h["loss_percent"] < 100:
+                issues.append(f"{h['loss_percent']}% packet loss")
+                if h["loss_percent"] > worst_loss:
+                    worst_loss = h["loss_percent"]
+                    worst_hop = h
+
+            # Check for latency spike from previous hop
+            if prev_rtt > 0 and h["avg_rtt"] > 0:
+                delta = h["avg_rtt"] - prev_rtt
+                h["latency_delta"] = round(delta, 2)
+                if delta > 50:
+                    issues.append(f"+{delta:.0f}ms latency jump (WAN segment or congestion)")
+                elif delta > 20:
+                    issues.append(f"+{delta:.0f}ms latency increase")
+            else:
+                h["latency_delta"] = round(h["avg_rtt"], 2) if h["avg_rtt"] > 0 else 0
+
+            # Check for high jitter
+            if h["jitter"] > 20:
+                issues.append(f"High jitter: {h['jitter']}ms")
+
+            # Check for high absolute latency
+            if h["avg_rtt"] > 200:
+                issues.append(f"High latency: {h['avg_rtt']}ms")
+
+            if issues:
+                problem_hops.append({
+                    "hop": h["hop"],
+                    "ip": h["ip"],
+                    "issues": issues,
+                })
+
+            if h["avg_rtt"] > 0:
+                prev_rtt = h["avg_rtt"]
+
+        # Determine overall status and health
+        # Check the final hop (target) specifically
+        target_hop = None
+        for h in reversed(hop_results):
+            if h["ip"] != "*":
+                target_hop = h
+                break
+
+        target_loss = target_hop["loss_percent"] if target_hop else 100
+
+        if target_loss == 100:
+            status = "fail"
+            path_health = "critical"
+            # Find where packets start dropping
+            last_ok = None
+            for h in hop_results:
+                if h["ip"] != "*" and h["loss_percent"] < 100:
+                    last_ok = h
+            if last_ok:
+                recs.append(
+                    f"Packets reach hop {last_ok['hop']} ({last_ok['ip']}) "
+                    f"but are lost after that. The drop point is between "
+                    f"hop {last_ok['hop']} and the target."
+                )
+                recs.append(
+                    "Check routing, firewall rules, and ICMP filtering "
+                    "between these hops."
+                )
+            else:
+                recs.append("No hops responded. Check local routing and firewall.")
+        elif target_loss > 20:
+            status = "fail"
+            path_health = "critical"
+        elif target_loss > 5:
+            status = "warning"
+            path_health = "impaired"
+        elif target_loss > 0:
+            status = "warning"
+            path_health = "degraded"
+        elif worst_loss > 0:
+            # Intermediate hop loss can be ICMP rate limiting (normal)
+            status = "warning"
+            path_health = "degraded"
+            recs.append(
+                "Some intermediate hops show packet loss. This is often "
+                "caused by ICMP rate-limiting on transit routers (not a real "
+                "problem). If the target itself has 0% loss, the path is healthy."
+            )
+        else:
+            path_health = "healthy"
+
+        # Build summary
+        total = len(hop_results)
+        resp = len(responding)
+        if target_loss == 100:
+            summary = (
+                f"Path has {total} hops ({resp} responding). "
+                f"Target is UNREACHABLE — 100% loss at destination."
+            )
+        elif worst_loss > 0:
+            summary = (
+                f"Path has {total} hops ({resp} responding). "
+                f"Worst loss: {worst_loss}% at hop "
+                f"{worst_hop['hop']} ({worst_hop['ip']}). "
+                f"Target loss: {target_loss}%."
+            )
+        else:
+            summary = (
+                f"Path has {total} hops ({resp} responding). "
+                f"No packet loss detected. Path is clean."
+            )
+
+        # Add specific recommendations for problem hops
+        for ph in problem_hops:
+            for issue in ph["issues"]:
+                if "packet loss" in issue and ph["ip"] != "*":
+                    recs.append(
+                        f"Hop {ph['hop']} ({ph['ip']}): {issue}. "
+                        f"Check interface error counters and QoS policies on this device."
+                    )
+                elif "latency jump" in issue:
+                    recs.append(
+                        f"Hop {ph['hop']} ({ph['ip']}): {issue}. "
+                        f"This likely indicates a WAN segment or congested link."
+                    )
+
+        if not recs and status == "pass":
+            recs.append("Path looks healthy. No packet loss or significant latency issues detected.")
+
+        return {
+            "status": status,
+            "summary": summary,
+            "problem_hops": problem_hops,
+            "worst_hop": {
+                "hop": worst_hop["hop"],
+                "ip": worst_hop["ip"],
+                "loss_percent": worst_hop["loss_percent"],
+            } if worst_hop else None,
+            "path_health": path_health,
+            "recommendations": recs,
+        }
+
+    # ------------------------------------------------------------------
     # Parsers
     # ------------------------------------------------------------------
 
