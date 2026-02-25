@@ -9,6 +9,10 @@ def create_app():
     app.config["MAX_CONTENT_LENGTH"] = int(
         os.environ.get("MAX_CONTENT_LENGTH", 16 * 1024 * 1024)
     )
+    # Disable template caching so changes show up immediately
+    app.config["TEMPLATES_AUTO_RELOAD"] = True
+    app.jinja_env.auto_reload = True
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
     app.config["UPLOAD_FOLDER"] = os.path.join(
         os.path.dirname(os.path.dirname(__file__)), "uploads"
     )
